@@ -32,7 +32,9 @@ def test_health_endpoint():
 
 def test_predict_endpoint():
     client = TestClient(app)
-    payload = {"sequence": [{"amount": 1200.0, "merchant_category": "electronics", "country": "ES"}]}
+    payload = {
+        "sequence": [{"amount": 1200.0, "merchant_category": "electronics", "country": "ES"}]
+    }
     resp = client.post("/predict", json=payload)
     assert resp.status_code == 200
     body = resp.json()

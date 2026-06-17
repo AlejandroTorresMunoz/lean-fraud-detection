@@ -1,0 +1,33 @@
+# Pre-commit hooks: catch format/lint issues before a commit lands.
+#   Install (writes .git/hooks/pre-commit):  uv tool install pre-commit && pre-commit install
+#   Run against the whole repo on demand:    pre-commit run --all-files
+#   Bump pinned versions:                    pre-commit autoupdate
+# ruff and black read line-length/target from pyproject.toml, so config stays in one place.
+
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml          # docker-compose.yml, configs/*.yaml, this file
+      - id: check-toml          # pyproject.toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]    # guardrail: never commit raw datasets/model blobs
+      - id: mixed-line-ending
+        args: [--fix=lf]        # match .gitattributes (LF everywhere)
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff                # lint (auto-fix import order, unused, etc.)
+        args: [--fix]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black               # formatting
