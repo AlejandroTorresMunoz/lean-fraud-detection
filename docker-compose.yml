@@ -1,0 +1,45 @@
+# Fully local, $0 stack. Emulates the AWS services a Revolut-style pipeline uses
+# (Kinesis + S3) via LocalStack — NO AWS account, NO billing. LocalStack emulates the
+# control plane too, so `tflocal apply` really provisions these resources. See README.
+
+services:
+  # --- LocalStack: emulated AWS (Kinesis + S3 + IAM/STS), control plane included ---
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=kinesis,s3,sts,iam,cloudwatch
+      - DEBUG=0
+      - AWS_DEFAULT_REGION=eu-west-1
+
+  # --- Experiment tracking ---
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+
+  # --- Inference service ---
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_DEFAULT_REGION=eu-west-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      - localstack
+      - mlflow
+
+volumes:
+  mlflow-data:
