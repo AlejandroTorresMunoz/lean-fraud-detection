@@ -3,21 +3,26 @@
 seed: 42
 
 dataset:
-  name: tabformer          # tabformer | ieee-cis | paysim
+  name: ieee-cis           # ieee-cis | tabformer | paysim
   raw_dir: data/raw
   processed_dir: data/processed
   sequence_length: 32       # number of past transactions per sequence
-  test_size: 0.2            # strictly time-ordered, per-user split (no leakage)
+  test_size: 0.2            # strict time-based split by TransactionDT (no future in train)
   val_size: 0.1
 
 features:
   amount_log: true
-  time_deltas: true         # seconds since previous tx
-  rolling_aggs: true        # rolling mean/count of spend
-  categorical:
-    - merchant_category
-    - country
-    - tx_type
+  time_deltas: true         # seconds since previous tx (per user)
+  rolling_aggs: true        # causal rolling mean / running count of spend per user
+  user_key:                 # IEEE-CIS has no user id; derive a pseudo-user from these
+    - card1
+    - addr1
+    - P_emaildomain
+  categorical:              # low-cardinality categoricals, integer-encoded (fit on train)
+    - ProductCD
+    - card4
+    - card6
+    - DeviceType
 
 model:
   type: tcn                 # tcn | transformer | xgboost | logreg

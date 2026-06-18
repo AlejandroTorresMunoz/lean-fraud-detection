@@ -45,6 +45,10 @@ infra = [
     "terraform-local>=0.18",
     "awscli-local>=0.22",
 ]
+# Dataset download via the Kaggle API (data/download.py). Not needed to train or serve.
+data = [
+    "kaggle>=1.6",
+]
 
 [tool.uv]
 # Keep the default environment lean; opt into the demo extra explicitly when needed.
