@@ -20,6 +20,7 @@ repos:
         args: [--maxkb=1024]    # guardrail: never commit raw datasets/model blobs
       - id: mixed-line-ending
         args: [--fix=lf]        # match .gitattributes (LF everywhere)
+      - id: detect-private-key  # block committed SSH/PEM private keys
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.6
@@ -31,3 +32,8 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black               # formatting
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks            # scan staged changes for credentials / API tokens / keys
