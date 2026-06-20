@@ -53,6 +53,7 @@ stack, and the **Terraform** CLI (used by `tflocal`).
 uv sync                       # project + default `dev` group
 uv sync --extra demo          # add the Streamlit demo UI
 uv sync --group infra         # add tflocal/awslocal (provision LocalStack)
+uv sync --group data          # add the Kaggle API (dataset download)
 
 # 1. spin up the emulated AWS stack (LocalStack: Kinesis + S3) + MLflow + API
 cp .env.example .env
@@ -83,15 +84,33 @@ module, so it also runs without uv once the package is installed.
 
 ## Datasets (public)
 
-Primary: **IBM TabFormer Credit Card Transactions** (per-user event sequences, mirrors the
-foundation-model setup). Secondary: **IEEE-CIS Fraud Detection**, **PaySim**. See [src/lean_fraud/data/download.py](src/lean_fraud/data/download.py).
+Primary: **Sparkov** (`kartik2112/fraud-detection`) — ~1.85M synthetic credit-card transactions from
+**999 cards**, ~0.5% fraud, with realistic per-card histories (median ~1,470 tx/card). Each row carries
+a card number (`cc_num`, used as the per-user key), a `unix_time`, amount, merchant category,
+cardholder + merchant geolocation, and an `is_fraud` label. Candidate alternatives: **IBM TabFormer**
+(the dataset from the *Tabular Transformers* paper), **IEEE-CIS**.
+
+**Access:** Sparkov is a public Kaggle *dataset* (not a competition), so it needs only a free Kaggle
+API token — no competition-rules acceptance, no phone verification. Put `KAGGLE_API_TOKEN` in `.env`
+(see [.env.example](.env.example)), then `uv sync --group data && uv run python -m lean_fraud.data.download`.
+The two shipped CSVs (`fraudTrain.csv` + `fraudTest.csv`) are merged; build_sequences makes its **own**
+strict time-based split. See [download.py](src/lean_fraud/data/download.py).
+
+**Pipeline** ([build_sequences](src/lean_fraud/data/build_sequences.py)): per-card, causal feature
+engineering — `amt` (+ log), inter-transaction `Δt`, causal rolling spend (mean/count of *prior*
+transactions), cardholder↔merchant distance, and transaction hour / day-of-week; a few low-cardinality
+categoricals (`category`, `gender`, `state`) integer-encoded and numeric features standardized — both
+**fit on the train split only**. The output is a single time-sorted table
+(`data/processed/sequences.npz` + `meta.json`) tagged per row with `train`/`val`/`test`; fixed-length
+sequence windows are built lazily per batch with `make_windows`, avoiding a multi-GB 3-D array.
 
 ## Design decisions
 
 - **Why a TCN?** Causal dilated convolutions capture long transaction histories with a small,
   fast, parallelizable model — ideal for low-latency real-time scoring.
 - **Imbalanced classes:** focal loss / class weighting; we report **PR-AUC** (not just ROC-AUC).
-- **No temporal leakage:** strictly time-ordered, per-user splits.
+- **No temporal leakage:** a strict time-based split by `TransactionDT` (no future in train); causal
+  windows plus train-only fitting of encoders/scalers keep every feature strictly backward-looking.
 - **Efficiency is measured, not assumed:** params, model size, and p50/p99 latency are reported.
 
 ## On the "deployment" (honesty matters)

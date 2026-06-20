@@ -15,7 +15,9 @@ import numpy as np
 import torch
 
 
-def measure_latency(model: torch.nn.Module, sample: torch.Tensor, n: int = 1000) -> dict[str, float]:
+def measure_latency(
+    model: torch.nn.Module, sample: torch.Tensor, n: int = 1000
+) -> dict[str, float]:
     """Return p50/p99 latency (ms) for single-sample inference on CPU."""
     model.eval()
     times: list[float] = []

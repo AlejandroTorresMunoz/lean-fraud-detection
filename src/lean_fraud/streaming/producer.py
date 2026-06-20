@@ -27,7 +27,12 @@ def main(rate_hz: float = 50.0) -> None:
     print(f"[producer] putting records to {TX_STREAM} at ~{rate_hz} tx/s")
 
     # TODO: iterate over processed transactions instead of this demo event.
-    demo_tx = {"user_id": "u-001", "amount": 42.0, "merchant_category": "groceries", "country": "ES"}
+    demo_tx = {
+        "user_id": "u-001",
+        "amount": 42.0,
+        "merchant_category": "groceries",
+        "country": "ES",
+    }
     while True:
         kinesis.put_record(
             StreamName=TX_STREAM,

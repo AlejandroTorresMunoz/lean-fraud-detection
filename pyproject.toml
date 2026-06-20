@@ -22,6 +22,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "boto3>=1.34",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +45,16 @@ dev = [
 infra = [
     "terraform-local>=0.18",
     "awscli-local>=0.22",
+]
+# Dataset download via the Kaggle API (data/download.py). Not needed to train or serve.
+data = [
+    "kaggle>=1.6",
+]
+# Exploratory data analysis notebook (notebooks/eda_sparkov.ipynb). Dev-only.
+eda = [
+    "jupyterlab>=4.0",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
 ]
 
 [tool.uv]
