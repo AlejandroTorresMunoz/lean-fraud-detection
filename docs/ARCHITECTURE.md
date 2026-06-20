@@ -79,6 +79,10 @@ package). Optional: chain DAGs with **Airflow Datasets** (data-aware scheduling)
 
 ## Data pipeline (Sparkov)
 
+> **Full walkthrough:** [DATA_PIPELINE.md](DATA_PIPELINE.md). The pipeline is a modular ETL — a thin
+> orchestrator (`build_sequences`) composing focused Transform stages under `data/transform/`
+> (`features` · `split` · `encode`), each unit-testable.
+
 The card number (`cc_num`) is the per-user key; transactions are ordered by `unix_time`. Causal
 features (`amt`+log, inter-tx `Δt`, causal rolling spend, cardholder↔merchant distance, hour /
 day-of-week), a few low-cardinality categoricals (`category`, `gender`, `state`) integer-encoded —
@@ -105,7 +109,7 @@ path use **separate flows/queues** and never compete for the same messages.
 
 | Area | State |
 |---|---|
-| Data download + sequence build (Sparkov) | ✅ implemented |
+| Data ETL: download + modular `transform/` + `build_sequences` (Sparkov) | ✅ implemented |
 | Config validation tests | ✅ implemented |
 | Pre-commit (ruff/black/file hooks) + CI (uv) | ✅ implemented |
 | Pipeline validated on real data | ✅ validated (~1.85M tx, 999 cards) |
