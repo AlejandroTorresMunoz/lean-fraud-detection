@@ -84,23 +84,24 @@ module, so it also runs without uv once the package is installed.
 
 ## Datasets (public)
 
-Primary: **IEEE-CIS Fraud Detection** (~590K labelled transactions, ~3.5% fraud, rich anonymized
-features). It has no explicit user id, so [build_sequences](src/lean_fraud/data/build_sequences.py)
-derives a pseudo-user from `card1 + addr1 + P_emaildomain` and orders by `TransactionDT`. Candidate
-alternatives: **IBM TabFormer** (true per-user sequences), **PaySim**.
+Primary: **Sparkov** (`kartik2112/fraud-detection`) — ~1.85M synthetic credit-card transactions from
+**999 cards**, ~0.5% fraud, with realistic per-card histories (median ~1,470 tx/card). Each row carries
+a card number (`cc_num`, used as the per-user key), a `unix_time`, amount, merchant category,
+cardholder + merchant geolocation, and an `is_fraud` label. Candidate alternatives: **IBM TabFormer**
+(the dataset from the *Tabular Transformers* paper), **IEEE-CIS**.
 
-**Access:** needs a free Kaggle token (`~/.kaggle/kaggle.json`) and a one-time acceptance of the
-[competition rules](https://www.kaggle.com/c/ieee-fraud-detection/rules) — still possible although the
-2019 contest is closed. Then `uv sync --group data && uv run python -m lean_fraud.data.download`.
-Only the labelled train files are used; build_sequences makes its own strict time-based split (the
-competition test set has no public labels). See [src/lean_fraud/data/download.py](src/lean_fraud/data/download.py).
+**Access:** Sparkov is a public Kaggle *dataset* (not a competition), so it needs only a free Kaggle
+API token — no competition-rules acceptance, no phone verification. Put `KAGGLE_API_TOKEN` in `.env`
+(see [.env.example](.env.example)), then `uv sync --group data && uv run python -m lean_fraud.data.download`.
+The two shipped CSVs (`fraudTrain.csv` + `fraudTest.csv`) are merged; build_sequences makes its **own**
+strict time-based split. See [download.py](src/lean_fraud/data/download.py).
 
-**Pipeline** ([build_sequences](src/lean_fraud/data/build_sequences.py)): per-user, causal feature
-engineering — `amount` (+ log), inter-transaction `Δt`, causal rolling spend (mean/count of *prior*
-transactions), and the anonymized `C1–14` / `D1–15` blocks; a few low-cardinality categoricals
-(`ProductCD`, `card4`, `card6`, `DeviceType`) integer-encoded and numeric features standardized — both
+**Pipeline** ([build_sequences](src/lean_fraud/data/build_sequences.py)): per-card, causal feature
+engineering — `amt` (+ log), inter-transaction `Δt`, causal rolling spend (mean/count of *prior*
+transactions), cardholder↔merchant distance, and transaction hour / day-of-week; a few low-cardinality
+categoricals (`category`, `gender`, `state`) integer-encoded and numeric features standardized — both
 **fit on the train split only**. The output is a single time-sorted table
-(`data/processed/ieee_cis.npz` + `meta.json`) tagged per row with `train`/`val`/`test`; fixed-length
+(`data/processed/sequences.npz` + `meta.json`) tagged per row with `train`/`val`/`test`; fixed-length
 sequence windows are built lazily per batch with `make_windows`, avoiding a multi-GB 3-D array.
 
 ## Design decisions

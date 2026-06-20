@@ -1,29 +1,40 @@
-"""Download the IEEE-CIS Fraud Detection training data into data/raw/ via the Kaggle API.
+"""Download the Sparkov synthetic credit-card fraud dataset into data/raw/ via the Kaggle API.
 
-Requires a free Kaggle account + API token at ~/.kaggle/kaggle.json (or KAGGLE_USERNAME /
-KAGGLE_KEY env vars) AND a one-time acceptance of the competition rules at
-https://www.kaggle.com/c/ieee-fraud-detection/rules — still possible even though the 2019
-competition is closed. We only fetch the *labelled* train files; the competition test set has no
-public labels, so build_sequences makes its own time-based split on the train data.
+This is a public Kaggle *dataset* (not a competition), so it downloads with just an API token —
+no competition rules / phone verification needed. It ships two CSVs (fraudTrain.csv, fraudTest.csv)
+with one row per card transaction: cc_num (card -> pseudo-user), unix_time, amt, category, merchant
+and an is_fraud label — exactly what build_sequences needs to build per-user transaction sequences.
+We merge both files and make our own strict time-based split downstream.
+
+Requires a Kaggle token: KAGGLE_API_TOKEN in .env (loaded below) or ~/.kaggle/kaggle.json.
 
 Usage: python -m lean_fraud.data.download
 """
 
 from __future__ import annotations
 
-import zipfile
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from lean_fraud.config import load_config
 
-COMPETITION = "ieee-fraud-detection"
-FILES = ["train_transaction.csv", "train_identity.csv"]
+DATASET = "kartik2112/fraud-detection"
+FILES = ["fraudTrain.csv", "fraudTest.csv"]
 
 
 def main() -> None:
+    # Pull KAGGLE_API_TOKEN (and friends) from .env into the process environment so the Kaggle
+    # client can authenticate without exporting secrets into the shell.
+    load_dotenv()
+
     cfg = load_config()
     raw_dir = Path(cfg["dataset"]["raw_dir"])
     raw_dir.mkdir(parents=True, exist_ok=True)
+
+    if all((raw_dir / fname).exists() for fname in FILES):
+        print(f"[download] {', '.join(FILES)} already present, skipping")
+        return
 
     try:
         from kaggle.api.kaggle_api_extended import KaggleApi
@@ -31,26 +42,18 @@ def main() -> None:
         raise SystemExit("kaggle not installed — run `uv sync --group data`.") from exc
 
     api = KaggleApi()
-    api.authenticate()  # reads ~/.kaggle/kaggle.json or KAGGLE_USERNAME / KAGGLE_KEY
+    # Picks up KAGGLE_API_TOKEN (new KGAT_ token), else KAGGLE_USERNAME / KAGGLE_KEY,
+    # else ~/.kaggle/kaggle.json.
+    api.authenticate()
 
-    for fname in FILES:
-        if (raw_dir / fname).exists():
-            print(f"[download] {fname} already present, skipping")
-            continue
-        print(f"[download] fetching {fname} ...")
-        try:
-            api.competition_download_file(COMPETITION, fname, path=str(raw_dir), quiet=False)
-        except Exception as exc:  # noqa: BLE001 - surface a clear, actionable hint
-            raise SystemExit(
-                f"Could not download {fname} ({exc}). Check that your Kaggle token is set and that "
-                f"you accepted the rules at https://www.kaggle.com/c/{COMPETITION}/rules"
-            ) from exc
-
-        zipped = raw_dir / f"{fname}.zip"
-        if zipped.exists():
-            with zipfile.ZipFile(zipped) as zf:
-                zf.extractall(raw_dir)
-            zipped.unlink()
+    print(f"[download] fetching {DATASET} ...")
+    try:
+        api.dataset_download_files(DATASET, path=str(raw_dir), unzip=True, quiet=False)
+    except Exception as exc:  # noqa: BLE001 - surface a clear, actionable hint
+        raise SystemExit(
+            f"Could not download {DATASET} ({exc}). Check that your Kaggle token is set "
+            "(KAGGLE_API_TOKEN in .env)."
+        ) from exc
 
     print(f"[download] done -> {raw_dir.resolve()}")
 

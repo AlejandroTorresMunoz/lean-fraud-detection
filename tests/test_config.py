@@ -17,7 +17,7 @@ def test_config_loads_as_dict():
 
 def test_dataset_section():
     ds = load_config(CONFIG_PATH)["dataset"]
-    assert ds["name"] in {"ieee-cis", "tabformer", "paysim"}
+    assert ds["name"] in {"sparkov", "tabformer", "ieee-cis"}
     assert isinstance(ds["raw_dir"], str) and ds["raw_dir"]
     assert isinstance(ds["processed_dir"], str) and ds["processed_dir"]
     assert isinstance(ds["sequence_length"], int) and ds["sequence_length"] > 0
@@ -28,7 +28,7 @@ def test_dataset_section():
 
 def test_features_section():
     feats = load_config(CONFIG_PATH)["features"]
-    for flag in ("amount_log", "time_deltas", "rolling_aggs"):
+    for flag in ("amount_log", "time_deltas", "rolling_aggs", "geo_distance", "time_features"):
         assert isinstance(feats[flag], bool)
     assert isinstance(feats["user_key"], list) and feats["user_key"]
     assert isinstance(feats["categorical"], list) and feats["categorical"]

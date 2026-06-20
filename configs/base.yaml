@@ -3,23 +3,22 @@
 seed: 42
 
 dataset:
-  name: ieee-cis           # ieee-cis | tabformer | paysim
+  name: sparkov            # sparkov | tabformer | ieee-cis
   raw_dir: data/raw
   processed_dir: data/processed
   sequence_length: 32       # number of past transactions per sequence
-  test_size: 0.2            # strict time-based split by TransactionDT (no future in train)
+  test_size: 0.2            # strict time-based split by unix_time (no future in train)
   val_size: 0.1
 
 features:
-  amount_log: true
-  time_deltas: true         # seconds since previous tx (per user)
-  rolling_aggs: true        # causal rolling mean / running count of spend per user
-  user_key:                 # IEEE-CIS has no user id; derive a pseudo-user from these
-    - card1
-    - addr1
-    - P_emaildomain
+  amount_log: true          # log1p(amt)
+  time_deltas: true         # seconds since previous tx (per card)
+  rolling_aggs: true        # causal rolling mean / running count of spend per card
+  geo_distance: true        # distance between cardholder and merchant lat/long
+  time_features: true       # transaction hour-of-day and day-of-week
+  user_key:                 # the card number IS the user in Sparkov
+    - cc_num
   categorical:              # low-cardinality categoricals, integer-encoded (fit on train)
-    - ProductCD
-    - card4
-    - card6
-    - DeviceType
+    - category
+    - gender
+    - state

@@ -42,10 +42,10 @@ Local stack (`docker-compose`): **LocalStack (SQS + S3)** · **MLflow** · **Pos
 
 Plain `python -m lean_fraud.*` steps, two data commits then modelling:
 
-1. **Download** ([data/download.py](../src/lean_fraud/data/download.py)) — IEEE-CIS labelled train
-   files via the Kaggle API → `data/raw/`.
-2. **EDA** — `notebooks/eda_ieee_cis.ipynb`: class imbalance, transactions-per-pseudo-user
-   distribution (justifies `sequence_length=32`), missingness. Summary into the README.
+1. **Download** ([data/download.py](../src/lean_fraud/data/download.py)) — the Sparkov CSVs via the
+   Kaggle API (a public dataset, so just an API token — no competition rules) → `data/raw/`.
+2. **EDA** — `notebooks/eda_sparkov.ipynb`: class imbalance, transactions-per-card distribution
+   (justifies `sequence_length=32`), feature distributions. Summary into the README.
 3. **Build sequences** ([data/build_sequences.py](../src/lean_fraud/data/build_sequences.py)) —
    already implemented (see "Data pipeline" below).
 4. **Train / evaluate / benchmark** — implement the stubs + a `SequenceDataset` (lazy windows via
@@ -77,14 +77,16 @@ package). Optional: chain DAGs with **Airflow Datasets** (data-aware scheduling)
   the current toy heuristic in [serve/api.py](../src/lean_fraud/serve/api.py).
 - *(Option)* point MLflow's artifact store at the LocalStack S3 bucket for a fully AWS-emulated story.
 
-## Data pipeline (IEEE-CIS)
+## Data pipeline (Sparkov)
 
-No explicit user id → derive a **pseudo-user** (`card1 + addr1 + P_emaildomain`), order by
-`TransactionDT`. Causal features (`amount`+log, inter-tx `Δt`, causal rolling spend, `C1–14`/`D1–15`),
-a few low-cardinality categoricals integer-encoded — **encoders/scaler fit on train only**. Output is
-one time-sorted table (`data/processed/ieee_cis.npz` + `meta.json`) tagged per row `train/val/test`
-via a **strict time-based split**; fixed-length windows are built lazily with `make_windows` (no
-multi-GB 3-D array). Only the labelled train files are used (the competition test set is unlabelled).
+The card number (`cc_num`) is the per-user key; transactions are ordered by `unix_time`. Causal
+features (`amt`+log, inter-tx `Δt`, causal rolling spend, cardholder↔merchant distance, hour /
+day-of-week), a few low-cardinality categoricals (`category`, `gender`, `state`) integer-encoded —
+**encoders/scaler fit on train only**. The two shipped CSVs (`fraudTrain`/`fraudTest`) are merged and
+re-split with our **own** strict time-based split. Output is one time-sorted table
+(`data/processed/sequences.npz` + `meta.json`) tagged per row `train/val/test`; fixed-length windows
+are built lazily with `make_windows` (no multi-GB 3-D array). Validated end-to-end: ~1.85M tx, 999
+cards, 11 features, fraud ~0.5%.
 
 ## SQS implication: real-time vs. batch
 
@@ -103,10 +105,10 @@ path use **separate flows/queues** and never compete for the same messages.
 
 | Area | State |
 |---|---|
-| Data download + sequence build (IEEE-CIS) | ✅ implemented |
+| Data download + sequence build (Sparkov) | ✅ implemented |
 | Config validation tests | ✅ implemented |
 | Pre-commit (ruff/black/file hooks) + CI (uv) | ✅ implemented |
-| Pipeline validated on real data | ⏳ pending (needs Kaggle token) |
+| Pipeline validated on real data | ✅ validated (~1.85M tx, 999 cards) |
 | EDA notebook | ⏳ pending |
 | Train / evaluate / benchmark + MLflow | ⏳ stubs |
 | Queue migration **Kinesis → SQS** | ⏳ pending (Phase 2; infra, streaming, `.env`, README) |
