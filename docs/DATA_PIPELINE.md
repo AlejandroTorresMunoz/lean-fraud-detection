@@ -113,7 +113,8 @@ The design choices above are justified empirically in
 [`notebooks/eda_sparkov.ipynb`](../notebooks/eda_sparkov.ipynb): class imbalance (→ PR-AUC + focal
 loss), transactions-per-card (→ `sequence_length`), per-signal fraud patterns, and a **leakage sanity
 check** (no single engineered feature scores a near-perfect single-feature ROC-AUC on train). Run it
-after the pipeline with `uv sync --group eda` then open it in Jupyter.
+after the pipeline with `uv sync --group eda` then open it in Jupyter. A written summary of the
+conclusions (with the exact figures) is in [EDA_FINDINGS.md](EDA_FINDINGS.md).
 
 ## Imbalanced-class toolkit: PR-AUC and focal loss
 
