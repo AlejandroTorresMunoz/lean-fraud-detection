@@ -108,12 +108,53 @@ uv run python -m lean_fraud.data.download         # -> data/raw/*.csv (idempoten
 uv run python -m lean_fraud.data.build_sequences  # -> data/processed/sequences.npz + meta.json
 ```
 
+## Exploratory analysis
+The design choices above are justified empirically in
+[`notebooks/eda_sparkov.ipynb`](../notebooks/eda_sparkov.ipynb): class imbalance (→ PR-AUC + focal
+loss), transactions-per-card (→ `sequence_length`), per-signal fraud patterns, and a **leakage sanity
+check** (no single engineered feature scores a near-perfect single-feature ROC-AUC on train). Run it
+after the pipeline with `uv sync --group eda` then open it in Jupyter.
+
+## Imbalanced-class toolkit: PR-AUC and focal loss
+
+With fraud at ~0.5% of transactions, a model and a metric that treat every transaction equally get
+dominated by the legit majority. Two standard choices address this.
+
+**PR-AUC — the headline metric (not ROC-AUC).**
+- *ROC-AUC* is the area under the curve of true-positive rate vs **false-positive rate**. Its weakness
+  on rare positives: the false-positive rate divides by the huge number of negatives, so thousands of
+  false alarms barely move it — ROC-AUC can read 0.95+ while the system is unusable in practice.
+- *PR-AUC* is the area under the **precision–recall** curve. **Precision = TP / (TP + FP)** directly
+  penalizes false positives relative to the few true frauds; **recall = TP / (TP + FN)** measures how
+  much fraud is caught. A trivial classifier's PR-AUC is ≈ the fraud base rate (~0.005), not 0.5, so
+  PR-AUC is an honest summary of minority-class performance. **It is the number we report.**
+
+**Focal loss — the training objective.**
+- Plain cross-entropy averages the loss over all examples; with 99.5% easy negatives, the gradient is
+  swamped by transactions the model already gets right, so it barely learns the rare fraud.
+- *Class weighting* (and XGBoost's `scale_pos_weight`) scales up the positive class so the minority
+  gets proportional attention.
+- *Focal loss* (Lin et al., 2017) goes further: it multiplies each example's loss by a factor
+  **(1 − p_t)^γ** (where `p_t` is the predicted probability of the correct class). That factor shrinks
+  toward zero for confident, well-classified examples and stays ~1 for hard, misclassified ones, so the
+  model spends its capacity on the **hard cases** (the fraud and borderline legit) instead of the sea
+  of easy negatives. `γ` (gamma) sets how aggressively easy examples are down-weighted; an optional `α`
+  term adds class weighting on top.
+
+> **What is the per-feature "AUC" in the EDA?** A *single-feature ROC-AUC*: each feature's value is used
+> directly as the fraud score and scored against the label on the train split (we take `max(auc, 1−auc)`
+> so a feature predictive in either direction counts). It answers "how well does this one feature alone
+> rank fraud above legit?" — **0.5 = random, 1.0 = perfect**. Two uses: ranking feature strength, and a
+> **leakage alarm** — a lone feature near 1.0 would mean it encodes the label. ROC-AUC is fine for this
+> quick, symmetric separability screen; PR-AUC stays reserved for evaluating the trained *model*.
+
 ## Next phases
-1. **Stage unit tests** — `test_features`, `test_split`, `test_windows` (encode the invariants above).
-2. **MLflow dataset tracking** — log dataset version/hash, per-split row counts & fraud rates, and
+The stage unit tests (`test_features` / `test_split` / `test_windows`) and the EDA notebook are done.
+Remaining:
+1. **MLflow dataset tracking** — log dataset version/hash, per-split row counts & fraud rates, and
    store `meta.json` (scaler + feature order) as a run artifact, so each model is reproducibly tied
    to the exact data and preprocessing that produced it.
-3. **Modelling** — a `SequenceDataset` over `make_windows`, then `train`/`evaluate`/`benchmark`
+2. **Modelling** — a `SequenceDataset` over `make_windows`, then `train`/`evaluate`/`benchmark`
    (TCN vs Transformer vs baselines) reporting quality **and** efficiency (params, p50/p99 latency).
-4. **Phase 2 (see [ARCHITECTURE.md](ARCHITECTURE.md))** — SQS + Postgres + Airflow DAGs for the batch
+3. **Phase 2 (see [ARCHITECTURE.md](ARCHITECTURE.md))** — SQS + Postgres + Airflow DAGs for the batch
    inference pipeline; serving loads the `Production` model from the MLflow registry.

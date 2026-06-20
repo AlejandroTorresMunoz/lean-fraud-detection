@@ -113,7 +113,7 @@ path use **separate flows/queues** and never compete for the same messages.
 | Config validation tests | ✅ implemented |
 | Pre-commit (ruff/black/file hooks) + CI (uv) | ✅ implemented |
 | Pipeline validated on real data | ✅ validated (~1.85M tx, 999 cards) |
-| EDA notebook | ⏳ pending |
+| EDA notebook (`notebooks/eda_sparkov.ipynb`) | ✅ implemented |
 | Train / evaluate / benchmark + MLflow | ⏳ stubs |
 | Queue migration **Kinesis → SQS** | ⏳ pending (Phase 2; infra, streaming, `.env`, README) |
 | Postgres + Airflow in `docker-compose` | ⏳ pending (Phase 2) |
