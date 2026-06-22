@@ -22,3 +22,39 @@ features:
     - category
     - gender
     - state
+
+model:
+  type: tcn                 # tcn | transformer | logreg | xgboost
+  tcn:
+    channels: [64, 64, 64]  # hidden channels per temporal block (depth = len)
+    kernel_size: 3
+    dropout: 0.1
+  transformer:              # the heavy baseline the TCN is benchmarked against
+    d_model: 128
+    n_heads: 4
+    n_layers: 3
+    dropout: 0.1
+
+training:
+  epochs: 8
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+  loss: focal               # focal | bce  (focal for the ~0.5% fraud imbalance)
+  focal_gamma: 2.0
+  focal_alpha: 0.25
+  early_stopping_patience: 3   # stop if val PR-AUC does not improve for N epochs
+  num_workers: 0
+  device: auto              # auto | cpu | cuda
+  max_train_batches: null   # cap batches/epoch for quick smoke runs (null = full epoch)
+
+mlflow:
+  enabled: true
+  experiment: lean-fraud
+  # Local sqlite store (offline, no server, gives the MLflow UI via `mlflow ui --backend-store-uri`).
+  # Point to the compose MLflow server instead with http://localhost:5000.
+  tracking_uri: sqlite:///mlflow.db
+  run_name: null            # null -> auto (model.type + features)
+
+artifacts:
+  dir: artifacts            # where the best checkpoint + metrics land (later: emulated S3)
