@@ -61,6 +61,16 @@ eda = [
 # Keep the default environment lean; opt into the demo extra explicitly when needed.
 default-groups = ["dev"]
 
+# Use the CUDA 12.6 PyTorch wheels on Windows (local dev with an NVIDIA GPU). Linux/macOS and CI
+# fall back to the default CPU build from PyPI — the marker keeps CI from pulling the ~2 GB CUDA wheel.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32'" }]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/lean_fraud"]
 

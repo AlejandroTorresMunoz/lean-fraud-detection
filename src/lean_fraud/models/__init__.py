@@ -35,6 +35,7 @@ def build_model(cfg_model: dict[str, Any], n_features: int) -> torch.nn.Module:
             d_model=p.get("d_model", 128),
             n_heads=p.get("n_heads", 4),
             n_layers=p.get("n_layers", 3),
+            dim_feedforward=p.get("dim_feedforward", 256),
             dropout=p.get("dropout", 0.1),
         )
     raise ValueError(

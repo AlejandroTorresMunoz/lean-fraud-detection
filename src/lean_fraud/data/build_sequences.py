@@ -35,6 +35,7 @@ import pandas as pd
 from lean_fraud.config import load_config
 from lean_fraud.data.transform.encode import apply_scaler, encode_categoricals, fit_scaler
 from lean_fraud.data.transform.features import treat_num_features
+from lean_fraud.data.transform.pca import triple_pca
 from lean_fraud.data.transform.split import time_split
 
 RAW_FILES = ["fraudTrain.csv", "fraudTest.csv"]
@@ -75,11 +76,15 @@ def _user_key(df: pd.DataFrame, cols: list[str]) -> pd.Series:
     return df[present].astype("string").fillna("NA").agg("|".join, axis=1)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Sparkov sequence feature table.")
-    parser.add_argument("--config", default="configs/base.yaml")
-    cfg = load_config(parser.parse_args().config)
+def build(cfg: dict) -> Path:
+    """Build the processed feature table from a config dict; return the output npz path.
+
+    `features.engineering` selects the numeric representation: `raw` (the causal features as-is) or
+    `triple_pca` (the class-conditioned triple-PCA ablation). Both then share the categorical
+    encoding, scaling and windowing — so the two datasets differ only in their numeric block.
+    """
     ds, feats = cfg["dataset"], cfg["features"]
+    engineering = feats.get("engineering", "raw")
 
     out_dir = Path(ds["processed_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -89,30 +94,46 @@ def main() -> None:
     df["user"] = _user_key(df, feats.get("user_key", ["cc_num"]))
     df = df.sort_values(["user", TIME_COL]).reset_index(drop=True)
 
-    # --- transform: causal features -> time split -> categorical codes -> scale (fit on train) ---
+    # --- transform: causal features -> time split -> (optional triple-PCA) -> codes -> scale ---
     df, num_cols = treat_num_features(df, feats)
 
     t = df[TIME_COL].to_numpy()
     split = time_split(t, ds.get("test_size", 0.2), ds.get("val_size", 0.1))
     is_train = split == 0
+    y = df["is_fraud"].to_numpy(dtype=np.int8)
+
+    if engineering == "triple_pca":
+        num_block, num_cols = triple_pca(df[num_cols].to_numpy(dtype=np.float32), y, is_train)
+    elif engineering == "raw":
+        num_block = df[num_cols].to_numpy(dtype=np.float32)
+    else:
+        raise SystemExit(f"Unknown features.engineering={engineering!r} (expected raw|triple_pca).")
 
     code_cols, cat_maps = encode_categoricals(df, feats.get("categorical", []), is_train)
+    code_block = (
+        df[code_cols].to_numpy(dtype=np.float32)
+        if code_cols
+        else np.empty((len(df), 0), dtype=np.float32)
+    )
 
-    feature_cols = num_cols + code_cols
-    x = df[feature_cols].to_numpy(dtype=np.float32)
-    mean, std = fit_scaler(x, len(num_cols), is_train)
-    x = apply_scaler(x, len(num_cols), mean, std)
+    n_numeric = num_block.shape[1]
+    x = np.hstack([num_block, code_block]).astype(np.float32)
+    mean, std = fit_scaler(
+        x, n_numeric, is_train
+    )  # standardize the numeric/PCA block (fit on train)
+    x = apply_scaler(x, n_numeric, mean, std)
 
-    y = df["is_fraud"].to_numpy(dtype=np.int8)
     user = pd.factorize(df["user"])[0].astype(np.int64)  # contiguous (df is user-sorted)
+    feature_cols = num_cols + code_cols
 
     # --- load: write the processed table + meta ---
     np.savez_compressed(out_dir / OUT_NAME, X=x, y=y, user=user, t=t.astype(np.int64), split=split)
     meta = {
         "dataset": ds.get("name", "sparkov"),
+        "engineering": engineering,
         "feature_names": feature_cols,
         "n_features": len(feature_cols),
-        "n_numeric": len(num_cols),
+        "n_numeric": n_numeric,
         "sequence_length": ds.get("sequence_length", 32),
         "scaler": {"mean": mean.tolist(), "std": std.tolist()},
         "categorical_maps": cat_maps,
@@ -128,11 +149,21 @@ def main() -> None:
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     n = len(df)
-    print(f"[build_sequences] {n} rows, {len(feature_cols)} features, {meta['n_users']} users")
+    print(
+        f"[build_sequences] engineering={engineering}  {n} rows, "
+        f"{len(feature_cols)} features ({n_numeric} numeric), {meta['n_users']} users"
+    )
     for name in ("train", "val", "test"):
         s = meta["splits"][name]
         print(f"[build_sequences]   {name:5s}: {s['rows']:>7} rows  fraud={s['fraud_rate']:.4f}")
     print(f"[build_sequences] wrote {out_dir / OUT_NAME} + meta.json")
+    return out_dir / OUT_NAME
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build Sparkov sequence feature table.")
+    parser.add_argument("--config", default="configs/base.yaml")
+    build(load_config(parser.parse_args().config))
 
 
 if __name__ == "__main__":

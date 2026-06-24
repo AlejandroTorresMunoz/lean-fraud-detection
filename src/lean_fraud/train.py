@@ -25,7 +25,7 @@ from lean_fraud.data.dataset import SequenceDataset, load_processed
 from lean_fraud.losses import build_loss
 from lean_fraud.metrics import classification_metrics
 from lean_fraud.models import build_model
-from lean_fraud.tracking import start_run
+from lean_fraud.tracking import save_run_id, start_run
 
 
 def _set_seed(seed: int) -> None:
@@ -84,17 +84,29 @@ def train(cfg: dict) -> dict:
     n_params = model.count_parameters()
     features_tag = cfg.get("features", {}).get("engineering", "raw")
     run_name = cfg["mlflow"].get("run_name") or f"{cfg['model']['type']}-{features_tag}"
-    print(f"[train] model={cfg['model']['type']} params={n_params} device={device} run={run_name}")
+    print(
+        f"[train] model={cfg['model']['type']} params={n_params} device={device} run={run_name}",
+        flush=True,
+    )
 
     artifacts_dir = Path(cfg.get("artifacts", {}).get("dir", "artifacts")) / run_name
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = artifacts_dir / "best.pt"
 
     max_batches = tr_cfg.get("max_train_batches")
+    n_epochs = tr_cfg.get("epochs", 8)
+    log_every_epochs = max(tr_cfg.get("log_every_epochs", 1), 1)
+    log_every_batches = tr_cfg.get("log_every_batches", 0)  # within-epoch heartbeat (0 = off)
+    total_batches = (
+        len(train_loader) if max_batches is None else min(max_batches, len(train_loader))
+    )
     patience = tr_cfg.get("early_stopping_patience", 3)
     best_pr_auc, best_metrics, best_state, no_improve = -1.0, {}, None, 0
+    print(f"[train] starting: {n_epochs} epochs x {total_batches} batches/epoch", flush=True)
 
     with start_run(cfg.get("mlflow"), run_name) as run:
+        # Record the run id so evaluate/benchmark (separate subprocesses) resume THIS run.
+        save_run_id(artifacts_dir, run.run_id)
         run.set_tags({"model_type": cfg["model"]["type"], "features": features_tag})
         run.log_params(
             {
@@ -109,7 +121,7 @@ def train(cfg: dict) -> dict:
             }
         )
 
-        for epoch in range(tr_cfg.get("epochs", 8)):
+        for epoch in range(n_epochs):
             model.train()
             running, n_seen = 0.0, 0
             for b, (xb, yb) in enumerate(train_loader):
@@ -122,14 +134,24 @@ def train(cfg: dict) -> dict:
                 optimizer.step()
                 running += loss.item() * len(yb)
                 n_seen += len(yb)
+                if log_every_batches and (b + 1) % log_every_batches == 0:
+                    print(
+                        f"[train] epoch {epoch:>2}  batch {b + 1}/{total_batches}  "
+                        f"loss={running / max(n_seen, 1):.4f}",
+                        flush=True,
+                    )
 
             train_loss = running / max(n_seen, 1)
             scores, labels = predict_scores(model, val_loader, device)
             val = classification_metrics(labels, scores)
-            print(
-                f"[train] epoch {epoch:>2}  loss={train_loss:.4f}  "
-                f"val_pr_auc={val['pr_auc']:.4f}  val_roc_auc={val['roc_auc']:.4f}"
-            )
+            # Validation/MLflow run every epoch (early stopping needs it); only the console
+            # summary is throttled to every `log_every_epochs` epochs (and the last one).
+            if epoch % log_every_epochs == 0 or epoch == n_epochs - 1:
+                print(
+                    f"[train] epoch {epoch:>2}  loss={train_loss:.4f}  "
+                    f"val_pr_auc={val['pr_auc']:.4f}  val_roc_auc={val['roc_auc']:.4f}",
+                    flush=True,
+                )
             run.log_metrics(
                 {
                     "train_loss": train_loss,
@@ -176,8 +198,14 @@ def train(cfg: dict) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a fraud model.")
     parser.add_argument("--config", default="configs/base.yaml")
+    parser.add_argument(
+        "--device", choices=["auto", "cpu", "cuda"], help="override training.device"
+    )
     args = parser.parse_args()
-    train(load_config(args.config))
+    cfg = load_config(args.config)
+    if args.device:
+        cfg["training"]["device"] = args.device
+    train(cfg)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ import torch
 
 from lean_fraud.config import load_config
 from lean_fraud.models import build_model, load_checkpoint
-from lean_fraud.tracking import start_run
+from lean_fraud.tracking import load_run_id, start_run
 
 
 def measure_latency(
@@ -81,7 +81,7 @@ def benchmark(cfg: dict, ckpt_path: str | None = None, n_iters: int = 1000) -> d
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     (artifacts_dir / "benchmark.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    with start_run(cfg.get("mlflow"), run_name) as run:
+    with start_run(cfg.get("mlflow"), run_name, run_id=load_run_id(artifacts_dir)) as run:
         run.log_metrics({k: v for k, v in result.items() if isinstance(v, (int, float))})
     return result
 

@@ -20,7 +20,7 @@ from lean_fraud.config import load_config
 from lean_fraud.data.dataset import SequenceDataset, load_processed
 from lean_fraud.metrics import best_f1_threshold, classification_metrics
 from lean_fraud.models import load_checkpoint
-from lean_fraud.tracking import start_run
+from lean_fraud.tracking import load_run_id, start_run
 from lean_fraud.train import predict_scores
 
 
@@ -68,7 +68,7 @@ def evaluate(cfg: dict, ckpt_path: str | None = None) -> dict:
     (artifacts_dir / "test_metrics.json").write_text(
         json.dumps(metrics, indent=2), encoding="utf-8"
     )
-    with start_run(cfg.get("mlflow"), run_name) as run:
+    with start_run(cfg.get("mlflow"), run_name, run_id=load_run_id(artifacts_dir)) as run:
         run.log_metrics({f"test_{k}": v for k, v in metrics.items() if isinstance(v, float)})
     return metrics
 
