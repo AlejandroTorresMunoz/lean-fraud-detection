@@ -11,6 +11,7 @@ dataset:
   val_size: 0.1
 
 features:
+  engineering: raw          # raw | triple_pca  (class-conditioned triple-PCA ablation)
   amount_log: true          # log1p(amt)
   time_deltas: true         # seconds since previous tx (per card)
   rolling_aggs: true        # causal rolling mean / running count of spend per card
@@ -22,3 +23,46 @@ features:
     - category
     - gender
     - state
+
+model:
+  type: tcn                 # tcn | transformer | logreg | xgboost
+  tcn:
+    channels: [64, 64, 64]  # hidden channels per temporal block (depth = len)
+    kernel_size: 3
+    dropout: 0.1
+  transformer:              # the heavy baseline the TCN is benchmarked against
+    d_model: 128
+    n_heads: 4
+    n_layers: 3
+    dim_feedforward: 256    # ~400K params (~6x TCN); PyTorch default 2048 bloats it to ~1.8M (27x)
+    dropout: 0.1
+
+training:
+  epochs: 50
+  batch_size: 512
+  lr: 0.001
+  weight_decay: 0.0
+  loss: focal               # focal | bce  (focal for the ~0.5% fraud imbalance)
+  focal_gamma: 2.0
+  focal_alpha: 0.25
+  early_stopping_patience: 3   # stop if val PR-AUC does not improve for N epochs
+  num_workers: 0
+  device: auto              # auto | cpu | cuda  (auto uses the GPU when CUDA is available)
+  max_train_batches: null   # cap batches/epoch for quick smoke runs (null = full epoch)
+  log_every_epochs: 5       # print an epoch summary every N epochs (validation still runs each epoch)
+  log_every_batches: 0      # within-epoch heartbeat every N batches (0 = off; epoch summary only)
+
+mlflow:
+  enabled: true
+  experiment: lean-fraud
+  # Log THROUGH the MLflow server so it is the single owner of the backend DB — this lets you keep
+  # the UI open while training (logging direct to `sqlite:///mlflow.db` deadlocks against an open UI
+  # on Windows). Start it first: `mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000`
+  # (or `docker compose up -d mlflow`). For fully offline runs without a server, use
+  # `sqlite:///mlflow.db` and keep the UI closed while training. If unreachable, training degrades
+  # to no tracking rather than failing.
+  tracking_uri: http://127.0.0.1:5000
+  run_name: null            # null -> auto (model.type + features)
+
+artifacts:
+  dir: artifacts            # where the best checkpoint + metrics land (later: emulated S3)

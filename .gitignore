@@ -9,7 +9,7 @@ dist/
 
 # Data & artifacts (never commit raw data or models)
 data/raw/
-data/processed/
+data/processed*/
 *.parquet
 *.csv
 artifacts/
@@ -34,3 +34,6 @@ mlflow.db
 .DS_Store
 .idea/
 .vscode/
+
+# MLflow server logs from scripts/train_with_mlflow.sh
+.logs/
