@@ -70,6 +70,15 @@ Real-time scoring pipeline on an **emulated AWS** stack (runs locally on LocalSt
                          orchestration: Airflow DAG   ·   experiment tracking: MLflow
 ```
 
+**Real-time scoring (the trained TCN, not a stub).** The sync API (`/predict`) and the stream
+consumer share **one scoring core** ([scoring.py](src/lean_fraud/serve/scoring.py)) so they can
+never drift apart. It takes a card's **raw** transaction history, rebuilds the exact training-time
+features by reusing the ETL transforms (so there is **no train/serve skew**), standardizes with the
+**train-fit scaler** from `meta.json`, runs the model, and decides with the **validation-tuned
+threshold** saved by `evaluate` (not a hardcoded 0.5). The consumer keeps per-card history so the
+causal rolling features reproduce training exactly; `latency_ms` in the `/predict` response is the
+**measured** server-side inference time.
+
 ## Quickstart
 
 Tooling: [**uv**](https://docs.astral.sh/uv/) for the Python env, **Docker** for the local AWS

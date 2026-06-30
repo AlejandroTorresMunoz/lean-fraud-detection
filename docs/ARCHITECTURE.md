@@ -73,8 +73,10 @@ package). Optional: chain DAGs with **Airflow Datasets** (data-aware scheduling)
 - **Model Registry**: best model registered as `lean-fraud-tcn` with `Staging`/`Production` stages.
 - **Auto-promotion**: the training code promotes a new model to `Production` only if it beats the
   current champion on PR-AUC (MLflow Registry API — no Airflow needed).
-- **Serving** (FastAPI + the inference DAGs) loads the `Production` model from the registry, replacing
-  the current toy heuristic in [serve/api.py](../src/lean_fraud/serve/api.py).
+- **Serving** today loads the trained model from the **local artifacts** (`artifacts/<run>/best.pt`
+  plus the `meta.json` scaler and the val-tuned threshold) through the shared
+  [scoring.py](../src/lean_fraud/serve/scoring.py) core; switching the source to the MLflow
+  `Production` model from the registry is the planned next step.
 - *(Option)* point MLflow's artifact store at the LocalStack S3 bucket for a fully AWS-emulated story.
 
 ## Data pipeline (Sparkov)
@@ -114,8 +116,9 @@ path use **separate flows/queues** and never compete for the same messages.
 | Pre-commit (ruff/black/file hooks) + CI (uv) | ✅ implemented |
 | Pipeline validated on real data | ✅ validated (~1.85M tx, 999 cards) |
 | EDA notebook (`notebooks/eda_sparkov.ipynb`) | ✅ implemented |
-| Train / evaluate / benchmark + MLflow | ⏳ stubs |
+| Train / evaluate / benchmark + MLflow tracking | ✅ implemented (TCN + Transformer, triple-PCA ablation) |
+| Real-time serving: FastAPI + consumer score the trained TCN | ✅ implemented (shared `scoring.py`, val-tuned threshold) |
 | Queue migration **Kinesis → SQS** | ⏳ pending (Phase 2; infra, streaming, `.env`, README) |
 | Postgres + Airflow in `docker-compose` | ⏳ pending (Phase 2) |
 | Airflow DAGs A/B/C | ⏳ pending (Phase 2; replaces the single skeleton DAG) |
-| FastAPI / consumer load real model from MLflow | ⏳ pending |
+| Serving loads model from MLflow Registry (vs. local artifacts) | ⏳ pending |
