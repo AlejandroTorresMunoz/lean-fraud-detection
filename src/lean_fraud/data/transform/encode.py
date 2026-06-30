@@ -32,6 +32,28 @@ def encode_categoricals(
     return code_cols, cat_maps
 
 
+def apply_categoricals(
+    df: pd.DataFrame, cat_maps: dict[str, dict[str, int]]
+) -> tuple[list[str], np.ndarray]:
+    """Apply already-fitted category maps (e.g. from meta.json) — the serving-time counterpart.
+
+    Mirrors `encode_categoricals` but never fits: values unseen in the saved map (or NA) become 0,
+    exactly as train-unseen levels did at fit time. Iterates `cat_maps` in insertion order, which
+    matches the fit-time column order, so the returned code block lines up with meta's feature_names.
+    Returns (code_column_names, code_block) with the codes also written onto `df`.
+    """
+    code_cols: list[str] = []
+    blocks: list[np.ndarray] = []
+    for col, mapping in cat_maps.items():
+        values = df[col].astype("string").fillna("NA")
+        codes = values.map(mapping).fillna(0).astype("float32")
+        df[f"{col}_code"] = codes
+        code_cols.append(f"{col}_code")
+        blocks.append(codes.to_numpy(dtype=np.float32).reshape(-1, 1))
+    block = np.hstack(blocks) if blocks else np.empty((len(df), 0), dtype=np.float32)
+    return code_cols, block
+
+
 def fit_scaler(
     x: np.ndarray, n_numeric: int, is_train: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
