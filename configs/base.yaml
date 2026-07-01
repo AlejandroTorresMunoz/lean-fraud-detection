@@ -64,5 +64,13 @@ mlflow:
   tracking_uri: http://127.0.0.1:5000
   run_name: null            # null -> auto (model.type + features)
 
+agent:
+  provider: mock # mock | ollama
+  model: qwen2.5:3b
+  recursion_limit: 8 # Max number of recursive call to the agent
+  review_threshold: 0.5 # Threshold for the agent to decide if a review is needed
+  block_threshold: 0.9 # Block in the fallback
+
+
 artifacts:
   dir: artifacts            # where the best checkpoint + metrics land (later: emulated S3)

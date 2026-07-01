@@ -44,15 +44,25 @@ The TCN wins on quality with 6.2× fewer parameters. Both score under 5 ms p99.
 
 ## PR #4 — Fraud-triage agent (branch `agent`) — Phase 2 differentiator
 
-**Goal:** a Claude layer on top of the alerts (maps to Revolut's Sherlock + AIR; showcases the
-agentic/MCP experience from the CV).
+**Goal:** a **local, $0** LLM layer on top of the alerts (maps to Revolut's Sherlock + AIR; showcases
+the agentic/MCP experience from the CV). **Cascade:** the cheap TCN scores all traffic → the agent
+runs only on the flagged ~0.5%.
 **Dependency:** ideally after PR #3 (real alerts to triage).
 
 - [ ] Design: input (tx + score + features + card context) → output (block/review/allow + rationale).
-- [ ] Claude client with the correct model and SDK (consult the `claude-api` skill before implementing).
-- [ ] Fraud-analyst system prompt; optionally expose dataset stats as tools.
+- [ ] **Orchestration on LangChain + LangGraph** (`create_react_agent`, `recursion_limit`); no
+      hand-rolled loop.
+- [ ] Pluggable backend by config (`agent.provider: ollama | mock`):
+  - [ ] `ollama` (default): local model via `langchain-ollama` `ChatOllama(...).bind_tools([...])`
+        (tool-calling + structured output); default `qwen2.5:3b` for the 6 GB GPU, `qwen2.5:7b` fallback.
+  - [ ] `mock`: deterministic LangChain fake chat model for tests/CI ($0, offline — never run Ollama).
+  - [ ] (Deferred) `claude` backend via `langchain-anthropic` — consult the `claude-api` skill if added.
+- [ ] Three `@tool` functions over the processed data: `get_card_profile`, `get_recent_transactions`,
+      `get_population_fraud_rate`; fraud-analyst system prompt.
+- [ ] Guardrails: `recursion_limit`, validate tool args (error observation, don't crash), structured
+      output (Pydantic via `with_structured_output`), deterministic threshold fallback.
 - [ ] Integration: the agent consumes the alerts the consumer emits.
-- [ ] (Optional) MCP server: expose `/predict` + dataset stats as MCP tools.
+- [ ] (Optional) MCP server: expose `/predict` + the three tools as MCP tools.
 - [ ] Demo + tests (mock the LLM in tests to avoid token spend / CI cost).
 
 ---

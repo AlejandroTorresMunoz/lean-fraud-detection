@@ -56,6 +56,12 @@ eda = [
     "matplotlib>=3.8",
     "seaborn>=0.13",
 ]
+# Agent dependencies for the LLM-based review agent
+agent = [
+    "langchain>=1.3.11",
+    "langgraph>=1.2.7",
+    "langchain-ollama>=1.1.0"
+]
 
 [tool.uv]
 # Keep the default environment lean; opt into the demo extra explicitly when needed.
