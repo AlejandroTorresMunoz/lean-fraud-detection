@@ -8,6 +8,7 @@ the tool contract — correct lookups on the happy path, and readable {"error": 
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -86,3 +87,11 @@ def test_population_fraud_rate_unseen_segment_is_zero(tools):
 def test_population_fraud_rate_blank_arg_is_error(tools):
     out = tools["get_population_fraud_rate"].invoke({"category": "grocery", "state": ""})
     assert isinstance(out, dict) and "error" in out
+
+
+def test_sample_test_transaction_draws_from_the_test_split():
+    # unix_time [1, 2, 3, 5]; test_size 0.25 -> only the most-recent tx (unix 5, card 222) is TEST.
+    tx = _store().sample_test_transaction(
+        test_size=0.25, val_size=0.0, rng=np.random.default_rng(0)
+    )
+    assert str(tx["cc_num"]) == "222"

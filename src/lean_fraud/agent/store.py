@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+
+from lean_fraud.data.transform.split import TEST, time_split
 
 RAW_FILES = ["fraudTrain.csv", "fraudTest.csv"]
 USE_COLS = [
@@ -34,6 +37,7 @@ class TransactionStore:
         df = df.copy()
         df["card"] = df["cc_num"].astype(str)  # big ints -> str, matches AlertContext.card_id
         df = df.sort_values("unix_time").reset_index(drop=True)
+        self._df = df  # kept for time-based test-split sampling (sample_test_transaction)
         # 999 cards -> a per-card dict is small and gives O(1) history lookups.
         self._by_card: dict[str, pd.DataFrame] = {
             card: group for card, group in df.groupby("card", sort=False)
@@ -100,3 +104,25 @@ class TransactionStore:
             return round(float(self._pop_fraud.loc[(category, state)]), 4)
         except KeyError:
             return 0.0
+
+    def sample_test_transaction(
+        self,
+        test_size: float = 0.2,
+        val_size: float = 0.1,
+        rng: np.random.Generator | None = None,
+        fraud_only: bool = False,
+    ) -> dict:
+        """Return a random raw transaction from the time-based TEST split (most-recent fraction).
+
+        Reuses the training split logic (`transform.split.time_split`), so the demo/eval draws from
+        genuinely held-out data — no train/val rows leak in. Returns the raw tx columns as a dict.
+        """
+        labels = time_split(self._df["unix_time"].to_numpy(), test_size, val_size)
+        mask = labels == TEST
+        if fraud_only:
+            mask &= self._df["is_fraud"].to_numpy() == 1
+        pool = self._df[mask]
+        if pool.empty:
+            raise ValueError("no TEST-split transactions match the filter")
+        rng = rng or np.random.default_rng()
+        return pool.iloc[int(rng.integers(len(pool)))].to_dict()

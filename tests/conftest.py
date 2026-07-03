@@ -15,6 +15,12 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # force the CPU path (the Windows CUDA build of
 # torch can corrupt the shared pytest process running many tiny convs); CI is CPU-only anyway
 
+# Keep the agent tests hermetic: LangChain/create_agent enables LangSmith tracing whenever a key is
+# present in the environment, which POSTs traces over the network. Force it off so tests never touch
+# the network (and stay quiet + fast) regardless of the developer's local LangSmith setup.
+os.environ["LANGSMITH_TRACING"] = "false"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
 import torch  # noqa: E402  (must follow the thread-env setup above)
 
 torch.set_num_threads(1)
