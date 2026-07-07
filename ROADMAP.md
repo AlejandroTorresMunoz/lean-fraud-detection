@@ -26,19 +26,19 @@ The TCN wins on quality with 6.2× fewer parameters. Both score under 5 ms p99.
 
 ---
 
-## PR #3 — Real serving (branch `serving`) ⭐ next, highest technical value
+## ✅ PR #3 — Real serving (branch `serving`) — merged
 
 **Goal:** kill the toy scorer and serve the real TCN end to end. No dependencies (`best.pt` already exists).
 
-- [ ] Load the model at startup in `serve/api.py` via `load_checkpoint()` (startup, not per request).
-- [ ] Real `/predict`: build the sequence window from the payload, apply the **scaler from `meta.json`**
+- [x] Load the model at startup in `serve/api.py` via `load_checkpoint()` (startup, not per request).
+- [x] Real `/predict`: build the sequence window from the payload, apply the **scaler from `meta.json`**
       (same normalization as training), run inference, return prob + real `latency_ms`.
-- [ ] Handle short input: pad when fewer than `seq_len` transactions arrive.
-- [ ] Same scorer in `streaming/consumer.py`: extract the scoring logic into a shared module
+- [x] Handle short input: pad when fewer than `seq_len` transactions arrive.
+- [x] Same scorer in `streaming/consumer.py`: extract the scoring logic into a shared module
       (`scoring.py`) to avoid duplication.
-- [ ] Decision threshold: load the val-tuned threshold (saved by evaluate) instead of a hardcoded 0.5.
-- [ ] Tests: smoke test for `/predict` with the real model; test the consumer scoring a message.
-- [ ] Update README (drop any "toy" wording; `latency_ms` is now real).
+- [x] Decision threshold: load the val-tuned threshold (saved by evaluate) instead of a hardcoded 0.5.
+- [x] Tests: smoke test for `/predict` with the real model; test the consumer scoring a message.
+- [x] Update README (drop any "toy" wording; `latency_ms` is now real).
 
 ---
 
