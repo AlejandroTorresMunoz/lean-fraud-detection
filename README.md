@@ -64,9 +64,10 @@ Real-time scoring pipeline on an **emulated AWS** stack (runs locally on LocalSt
 
 ```
  transactions ──► [Kinesis: tx-stream] ──► consumer (TCN scoring) ──► [Kinesis: alerts-stream]
-   (producer)            ▲                        │
-                         │                        └──► FastAPI /predict  (sync scoring + UI demo)
-   datasets / model artifacts  ◄──► [S3 (LocalStack)]
+   (producer)            ▲                        │                          │
+                         │                        │                          └──► LLM triage agent
+                         │                        └──► FastAPI /predict            (flagged ~0.5% only)
+   datasets / model artifacts  ◄──► [S3 (LocalStack)]     (sync scoring + UI demo)
                          orchestration: Airflow DAG   ·   experiment tracking: MLflow
 ```
 
@@ -78,6 +79,35 @@ features by reusing the ETL transforms (so there is **no train/serve skew**), st
 threshold** saved by `evaluate` (not a hardcoded 0.5). The consumer keeps per-card history so the
 causal rolling features reproduce training exactly; `latency_ms` in the `/predict` response is the
 **measured** server-side inference time.
+
+## Fraud-triage agent (LLM cascade)
+
+Scoring flags *what* looks fraudulent; a triage layer explains *why* and decides *what to do*. A
+**cheap TCN scores every transaction**, and only the flagged ~0.5% is escalated to an **LLM agent**
+that investigates the card and returns a structured decision — a cascade that keeps the LLM cost
+marginal while mirroring a production fraud stack (a lightweight detector feeding an LLM analyst
+assistant).
+
+- **A real ReAct agent, orchestrated with LangChain + LangGraph** ([graph.py](src/lean_fraud/agent/graph.py),
+  `create_agent`). It is given three read-only tools over the processed data — `get_card_profile`,
+  `get_recent_transactions`, `get_population_fraud_rate` — reasons over the alert, calls the tools it
+  needs, and emits a `Decision` (`block | review | allow` + rationale).
+- **Local, $0, offline by default.** The LLM backend is pluggable by config (`agent.provider`): a
+  local **Ollama** model (`qwen2.5:3b`/`7b` via `langchain-ollama`) for real runs, or a deterministic
+  **mock** used in tests/CI that never touches the network.
+- **A guardrail that makes small local models safe to rely on.** The decision is resolved in three
+  tiers: (1) native structured output; (2) a separate `with_structured_output` extraction — small
+  models reason and decide well but often fail to emit the schema in the same turn, so this recovers
+  the decision from their prose; and (3) a **deterministic threshold fallback** on the TCN score.
+  `triage()` therefore **always** returns a valid decision and never hangs on the model, with the
+  reason/act loop capped by LangGraph's `recursion_limit`.
+
+Try it against a random held-out transaction (needs [Ollama](https://ollama.com) running):
+
+```bash
+uv run python scripts/agent_demo.py                             # default local model (qwen2.5:3b)
+uv run python scripts/agent_demo.py --model qwen2.5:7b --fraud-only
+```
 
 ## Quickstart
 
@@ -112,7 +142,10 @@ uv run python -m lean_fraud.benchmark --config configs/base.yaml   # params + la
 # 5. serve the scorer and run the real-time stream demo
 uv run uvicorn lean_fraud.serve.api:app --host 0.0.0.0 --port 8000   # FastAPI on :8000
 uv run python -m lean_fraud.streaming.producer   # replay transactions into Kinesis
-uv run python -m lean_fraud.streaming.consumer   # score the stream and emit fraud alerts
+uv run python -m lean_fraud.streaming.consumer   # score the stream, triage alerts, emit decisions
+
+# 6. (optional) triage one held-out alert with the local LLM agent (needs Ollama running)
+uv run python scripts/agent_demo.py --fraud-only
 ```
 
 Dev tasks: `uv run pytest -q` · `uv run ruff check src tests` · `uv run black src tests`.
@@ -167,8 +200,9 @@ sequence windows are built lazily per batch with `make_windows`, avoiding a mult
 
 ## Project layout
 
-See `src/lean_fraud/` for the package (each module has a `python -m` entrypoint). Key folders: `src/` (code),
-`infra/` (LocalStack init + Terraform IaC), `airflow/` (DAG), `configs/` (experiments), `tests/`.
+See `src/lean_fraud/` for the package (each module has a `python -m` entrypoint). Key folders: `src/` (code,
+incl. `agent/` — the LangGraph triage agent), `infra/` (LocalStack init + Terraform IaC), `airflow/` (DAG),
+`configs/` (experiments), `scripts/` (demos), `tests/`.
 
 ## Author
 

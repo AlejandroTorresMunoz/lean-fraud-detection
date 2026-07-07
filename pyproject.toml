@@ -56,10 +56,18 @@ eda = [
     "matplotlib>=3.8",
     "seaborn>=0.13",
 ]
+# Agent dependencies for the LLM-based review agent
+agent = [
+    "langchain>=1.3.11",
+    "langgraph>=1.2.7",
+    "langchain-ollama>=1.1.0"
+]
 
 [tool.uv]
-# Keep the default environment lean; opt into the demo extra explicitly when needed.
-default-groups = ["dev"]
+# `dev` (tests/lint) and `agent` (LangChain/LangGraph, tested in CI with the mock backend) are
+# installed by default, so a plain `uv sync` reproduces the CI environment. Heavier, situational
+# groups (infra, data, eda) and the `demo` extra stay opt-in to keep the base install lean.
+default-groups = ["dev", "agent"]
 
 # Use the CUDA 12.6 PyTorch wheels on Windows (local dev with an NVIDIA GPU). Linux/macOS and CI
 # fall back to the default CPU build from PyPI — the marker keeps CI from pulling the ~2 GB CUDA wheel.

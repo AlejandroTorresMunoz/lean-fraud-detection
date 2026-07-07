@@ -26,34 +26,43 @@ The TCN wins on quality with 6.2× fewer parameters. Both score under 5 ms p99.
 
 ---
 
-## PR #3 — Real serving (branch `serving`) ⭐ next, highest technical value
+## ✅ PR #3 — Real serving (branch `serving`) — merged
 
 **Goal:** kill the toy scorer and serve the real TCN end to end. No dependencies (`best.pt` already exists).
 
-- [ ] Load the model at startup in `serve/api.py` via `load_checkpoint()` (startup, not per request).
-- [ ] Real `/predict`: build the sequence window from the payload, apply the **scaler from `meta.json`**
+- [x] Load the model at startup in `serve/api.py` via `load_checkpoint()` (startup, not per request).
+- [x] Real `/predict`: build the sequence window from the payload, apply the **scaler from `meta.json`**
       (same normalization as training), run inference, return prob + real `latency_ms`.
-- [ ] Handle short input: pad when fewer than `seq_len` transactions arrive.
-- [ ] Same scorer in `streaming/consumer.py`: extract the scoring logic into a shared module
+- [x] Handle short input: pad when fewer than `seq_len` transactions arrive.
+- [x] Same scorer in `streaming/consumer.py`: extract the scoring logic into a shared module
       (`scoring.py`) to avoid duplication.
-- [ ] Decision threshold: load the val-tuned threshold (saved by evaluate) instead of a hardcoded 0.5.
-- [ ] Tests: smoke test for `/predict` with the real model; test the consumer scoring a message.
-- [ ] Update README (drop any "toy" wording; `latency_ms` is now real).
+- [x] Decision threshold: load the val-tuned threshold (saved by evaluate) instead of a hardcoded 0.5.
+- [x] Tests: smoke test for `/predict` with the real model; test the consumer scoring a message.
+- [x] Update README (drop any "toy" wording; `latency_ms` is now real).
 
 ---
 
-## PR #4 — Fraud-triage agent (branch `agent`) — Phase 2 differentiator
+## ✅ PR #4 — Fraud-triage agent (branch `agent`) — Phase 2 differentiator
 
-**Goal:** a Claude layer on top of the alerts (maps to Revolut's Sherlock + AIR; showcases the
-agentic/MCP experience from the CV).
-**Dependency:** ideally after PR #3 (real alerts to triage).
+**Goal:** a **local, $0** LLM layer on top of the alerts. **Cascade:** the cheap TCN scores all
+traffic → the agent runs only on the flagged ~0.5%. Verified end to end against real Ollama
+(`qwen2.5:3b` and `7b`) and in CI with the mock backend.
 
-- [ ] Design: input (tx + score + features + card context) → output (block/review/allow + rationale).
-- [ ] Claude client with the correct model and SDK (consult the `claude-api` skill before implementing).
-- [ ] Fraud-analyst system prompt; optionally expose dataset stats as tools.
-- [ ] Integration: the agent consumes the alerts the consumer emits.
-- [ ] (Optional) MCP server: expose `/predict` + dataset stats as MCP tools.
-- [ ] Demo + tests (mock the LLM in tests to avoid token spend / CI cost).
+- [x] Design: input `AlertContext` (tx + score + card id) → output `Decision` (block/review/allow + rationale).
+- [x] **Orchestration on LangChain + LangGraph** (`create_agent`, `recursion_limit`); no hand-rolled loop.
+- [x] Pluggable backend by config (`agent.provider: ollama | mock`):
+  - [x] `ollama` (default): local model via `langchain-ollama` `ChatOllama`; default `qwen2.5:3b`,
+        `qwen2.5:7b` for stronger tool-calling.
+  - [x] `mock`: deterministic LangChain fake chat model for tests/CI ($0, offline — never run Ollama).
+  - [ ] (Deferred) `claude` backend via `langchain-anthropic` — consult the `claude-api` skill if added.
+- [x] Three `@tool` functions over the processed data: `get_card_profile`, `get_recent_transactions`,
+      `get_population_fraud_rate`; fraud-analyst system prompt.
+- [x] Guardrails: `recursion_limit`, validate tool args (error observation, don't crash), **three-tier
+      decision** — native structured output → `with_structured_output` extraction (small models reason
+      but don't emit the schema in one turn) → deterministic threshold fallback. `triage()` never hangs.
+- [x] Integration: the consumer runs the cascade (`AlertContext.from_alert` → `triage`) on flagged tx.
+- [x] Demo: `scripts/agent_demo.py` triages a random held-out transaction against Ollama.
+- [ ] (Optional) MCP server: expose `/predict` + the three tools as MCP tools.
 
 ---
 
@@ -78,6 +87,6 @@ agentic/MCP experience from the CV).
 
 ## Priority order
 
-1. **PR #3 serving** (high return, no dependencies)
-2. **PR #4 agent** (differentiator, depends on #3)
-3. **PR #5 polish** (once the rest is in)
+1. ~~**PR #3 serving**~~ ✅ merged
+2. ~~**PR #4 agent**~~ ✅ done (differentiator)
+3. **PR #5 polish** (next — once the rest is in)
