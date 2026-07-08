@@ -34,6 +34,27 @@ def _card_key(tx: dict) -> str:
     return str(tx.get("cc_num", tx.get("user_id", "unknown")))
 
 
+def _put_fraud_rate(cloudwatch, namespace: str, alerts: int, total: int) -> None:
+    """Emit the windowed fraud-alert rate to CloudWatch so the alarm can watch it.
+
+    This is the only thing actionable live: with no ground-truth labels at scoring time we can't
+    monitor F1/PR-AUC in real time, but a spike in the alert rate flags an attack or drift. Best
+    effort — a monitoring hiccup must never take the scorer down.
+    """
+    if total <= 0:
+        return
+    try:
+        cloudwatch.put_metric_data(
+            Namespace=namespace,
+            MetricData=[
+                {"MetricName": "FraudAlertRate", "Value": alerts / total, "Unit": "None"},
+                {"MetricName": "TransactionsScored", "Value": total, "Unit": "Count"},
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001 - monitoring must not crash the consumer
+        print(f"[consumer] CloudWatch put_metric_data failed ({exc}); continuing.")
+
+
 def main(poll_seconds: float = 1.0) -> None:
     if not ENDPOINT:
         print("WARNING: AWS_ENDPOINT_URL is not set — refusing to hit real AWS. Set it first.")
@@ -55,7 +76,12 @@ def main(poll_seconds: float = 1.0) -> None:
         print(f"[consumer] triage agent unavailable ({exc}); alerts will carry no decision.")
         agent = None
 
+    stream_cfg = cfg.get("streaming", {})
+    cw_namespace = stream_cfg.get("cloudwatch_namespace", "LeanFraud")
+    flush_seconds = stream_cfg.get("metric_flush_seconds", 30)
+
     kinesis = boto3.client("kinesis", endpoint_url=ENDPOINT, region_name=REGION)
+    cloudwatch = boto3.client("cloudwatch", endpoint_url=ENDPOINT, region_name=REGION)
     shards = kinesis.describe_stream(StreamName=TX_STREAM)["StreamDescription"]["Shards"]
     iterators = {
         s["ShardId"]: kinesis.get_shard_iterator(
@@ -70,6 +96,11 @@ def main(poll_seconds: float = 1.0) -> None:
         f"[consumer] reading {TX_STREAM} across {len(iterators)} shard(s) @ thr={scorer.threshold:.4f}"
     )
 
+    # Windowed counters for the CloudWatch FraudAlertRate metric (see _put_fraud_rate).
+    window_total = 0
+    window_alerts = 0
+    last_flush = time.time()
+
     while True:
         for shard_id, iterator in list(iterators.items()):
             resp = kinesis.get_records(ShardIterator=iterator, Limit=100)
@@ -79,7 +110,9 @@ def main(poll_seconds: float = 1.0) -> None:
                 key = _card_key(tx)
                 history[key].append(tx)
                 prob, is_fraud, _ = score_history(scorer, history[key])
+                window_total += 1
                 if is_fraud:
+                    window_alerts += 1
                     alert = {"tx": tx, "prob": prob}
                     if agent is not None:
                         decision = triage(AlertContext.from_alert(alert), cfg, agent=agent)
@@ -94,6 +127,12 @@ def main(poll_seconds: float = 1.0) -> None:
                         f"[consumer] ALERT prob={prob:.3f} card={key} "
                         f"amt={tx.get('amt')} decision={verdict}"
                     )
+
+        # Flush the windowed fraud-alert rate to CloudWatch on a fixed cadence, then reset.
+        if time.time() - last_flush >= flush_seconds and window_total > 0:
+            _put_fraud_rate(cloudwatch, cw_namespace, window_alerts, window_total)
+            window_total = window_alerts = 0
+            last_flush = time.time()
 
         time.sleep(poll_seconds)
 

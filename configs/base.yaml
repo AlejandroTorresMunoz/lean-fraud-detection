@@ -72,5 +72,9 @@ agent:
   block_threshold: 0.9 # Block in the fallback
 
 
+streaming:
+  cloudwatch_namespace: LeanFraud   # namespace for the consumer's FraudAlertRate metric
+  metric_flush_seconds: 30          # how often the consumer emits the windowed fraud-alert rate
+
 artifacts:
   dir: artifacts            # where the best checkpoint + metrics land (later: emulated S3)
