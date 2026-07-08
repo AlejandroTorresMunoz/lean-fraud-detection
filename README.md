@@ -64,11 +64,12 @@ Real-time scoring pipeline on an **emulated AWS** stack (runs locally on LocalSt
 
 ```
  transactions ──► [Kinesis: tx-stream] ──► consumer (TCN scoring) ──► [Kinesis: alerts-stream]
-   (producer)            ▲                        │                          │
-                         │                        │                          └──► LLM triage agent
-                         │                        └──► FastAPI /predict            (flagged ~0.5% only)
+   (producer)            ▲                        │  │                       │
+                         │                        │  └► CloudWatch:          └──► LLM triage agent
+                         │                        │     FraudAlertRate ─► alarm    (flagged ~0.5% only)
+                         │                        └──► FastAPI /predict
    datasets / model artifacts  ◄──► [S3 (LocalStack)]     (sync scoring + UI demo)
-                         orchestration: Airflow DAG   ·   experiment tracking: MLflow
+      batch training orchestration: Airflow DAG   ·   experiment tracking: MLflow
 ```
 
 **Real-time scoring (the trained TCN, not a stub).** The sync API (`/predict`) and the stream
@@ -153,6 +154,20 @@ Dev tasks: `uv run pytest -q` · `uv run ruff check src tests` · `uv run black 
 Tear down the stack with `docker compose down -v`. Every entrypoint is a `python -m lean_fraud.<module>`
 module, so it also runs without uv once the package is installed.
 
+### One-command demo
+
+Once data is built and a model is trained, [`scripts/demo.sh`](scripts/demo.sh) drives the whole
+real-time path end to end — it brings up the stack, provisions it with `tflocal`, then streams a
+bounded batch of transactions through the TCN scorer and prints the fraud alerts + triage decisions
+live:
+
+```bash
+bash scripts/demo.sh                 # ~2000 tx at 200 tx/s, ready to screen-record
+```
+
+<!-- TODO(demo gif): record scripts/demo.sh and drop the GIF here, e.g.:
+     ![real-time fraud demo](docs/demo.gif) -->
+
 ## Datasets (public)
 
 Primary: **Sparkov** (`kartik2112/fraud-detection`) — ~1.85M synthetic credit-card transactions from
@@ -201,8 +216,11 @@ sequence windows are built lazily per batch with `make_windows`, avoiding a mult
 ## Project layout
 
 See `src/lean_fraud/` for the package (each module has a `python -m` entrypoint). Key folders: `src/` (code,
-incl. `agent/` — the LangGraph triage agent), `infra/` (LocalStack init + Terraform IaC), `airflow/` (DAG),
-`configs/` (experiments), `scripts/` (demos), `tests/`.
+incl. `agent/` — the LangGraph triage agent), `infra/` (LocalStack init + Terraform IaC, incl. the
+CloudWatch fraud-rate-spike alarm), `airflow/` (the batch training DAG that sequences the `python -m`
+steps — see [airflow/README.md](airflow/README.md)), `configs/` (experiments), `scripts/` (demos),
+`tests/`. What runs today vs. what is a documented future direction (SQS + Postgres) is spelled out in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Author
 

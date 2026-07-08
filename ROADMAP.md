@@ -66,22 +66,39 @@ traffic → the agent runs only on the flagged ~0.5%. Verified end to end agains
 
 ---
 
-## PR #5 — Polish & infrastructure (branch `polish`)
+## ✅ PR #5 — Polish & infrastructure (branch `polish`)
 
-- [ ] Clean up the duplicate MLflow runs from before the `run_id` fix.
-- [ ] Airflow DAG: implement it for real (download→build→train→eval→benchmark) or trim the skeleton.
-- [ ] `docs/ARCHITECTURE.md`: decide on the aspirational Kinesis→SQS+Postgres migration
-      (implement it or align the doc with what exists).
-- [ ] Visual demo: GIF/screenshot of `/predict` + the stream for the README (depends on PR #3).
-- [ ] **CloudWatch fraud-rate-spike alarm** (depends on PR #3 — real alerts). CloudWatch is already
-      enabled in LocalStack (`SERVICES=...,cloudwatch`) but unused.
-      - Consumer emits a `FraudAlertRate` custom metric via boto3 `put_metric_data`.
-      - `aws_cloudwatch_metric_alarm` in `main.tf` (+ optional `aws_sns_topic` as the action) that
-        fires when the alert rate exceeds N× baseline over a window — detects attacks/drift, the only
-        thing actionable live (no ground-truth labels at scoring time, so F1/PR-AUC can't be monitored
-        in real time; latency is already a settled non-issue at ~10× headroom, so no latency alarm).
-      - README: label honestly — the alarm is provisioned for real via `tflocal`, but LocalStack
-        community's automatic alarm-state evaluation is limited (may need `set-alarm-state`).
+- [x] **Airflow DAG (real, light).** `airflow/dags/lean_fraud_pipeline.py` sequences
+      download→build→train→evaluate→benchmark via `BashOperator`s shelling out to the `python -m`
+      entrypoints (orchestration only; logic stays in the package). Added as an optional
+      `docker compose --profile airflow` service + `airflow/README.md`; not installed by `uv sync`.
+- [x] **`docs/ARCHITECTURE.md` aligned to reality.** The code uses **Kinesis** — the doc now describes
+      the Kinesis streaming path + the real training DAG + the CloudWatch alarm as *implemented*, and
+      clearly marks the **SQS + Postgres + multi-DAG** inference topology as a **future direction, not
+      built**. (Decision: align the doc, not migrate — the migration is a separate large PR.)
+- [x] **CloudWatch fraud-rate-spike alarm.** The consumer emits a windowed `FraudAlertRate` custom
+      metric (`put_metric_data`, `LeanFraud` namespace); `main.tf` adds an `aws_cloudwatch_metric_alarm`
+      (+ `aws_sns_topic` action) that fires when the rate exceeds ~10× baseline — the only signal
+      actionable live (no labels at scoring time; latency is a settled non-issue). Provisioned for real
+      via `tflocal`; README/ARCHITECTURE note LocalStack Community's limited auto-evaluation.
+- [x] **Visual demo driver.** `scripts/demo.sh` drives the whole real-time path end to end (stack up →
+      `tflocal` provision → stream a bounded batch → live alerts + triage), plus a `--limit`/`--rate-hz`
+      flag on the producer. README has the command + a placeholder for the recorded GIF.
+      - [ ] Record the actual GIF and drop it in the README (manual screen-recording step).
+- [~] **Duplicate MLflow runs.** Root cause (the `run_id` grouping) is already fixed and merged; the
+      leftover runs are stale, local-only data under the git-ignored `mlruns/` — pruned locally, nothing
+      to commit. (Prune yours with `mlflow gc` / by deleting old run dirs.)
+
+---
+
+## PR #6 — Containerization / exportable bundle (branch `docker`)
+
+**Goal:** the "clone & run" thesis — one command brings the whole demo up.
+
+- [ ] Dockerfile on `uv` (the current one uses plain `pip install -e .`).
+- [ ] Model provisioning strategy (how `best.pt` + `meta.json` reach the image).
+- [ ] `producer` and `consumer` as compose services (today only `api` is a service).
+- [ ] One-command `docker compose up` that stands up the full stack + demo.
 
 ---
 
@@ -89,4 +106,5 @@ traffic → the agent runs only on the flagged ~0.5%. Verified end to end agains
 
 1. ~~**PR #3 serving**~~ ✅ merged
 2. ~~**PR #4 agent**~~ ✅ done (differentiator)
-3. **PR #5 polish** (next — once the rest is in)
+3. ~~**PR #5 polish**~~ ✅ done
+4. **PR #6 containerization** (next)

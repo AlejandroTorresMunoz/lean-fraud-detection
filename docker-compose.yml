@@ -41,5 +41,33 @@ services:
       - localstack
       - mlflow
 
+  # --- Batch orchestration (OPTIONAL: `docker compose --profile airflow up airflow`) ---
+  # Runs the offline training pipeline DAG (download -> build -> train -> evaluate -> benchmark),
+  # which just shells out to the same `python -m lean_fraud.*` entrypoints. Behind a profile so the
+  # default `docker compose up` stays lean; first boot installs the project (torch etc.) and is slow.
+  # NOT used for the real-time scorer (that is the FastAPI service + the stream consumer). See
+  # airflow/README.md for a lighter local-venv alternative.
+  airflow:
+    image: apache/airflow:2.10.5
+    profiles: ["airflow"]
+    command: standalone
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - _PIP_ADDITIONAL_REQUIREMENTS=-e /opt/lean-fraud
+      - LEAN_FRAUD_HOME=/opt/lean-fraud
+      - LEAN_FRAUD_PYTHON=python
+      - LEAN_FRAUD_CONFIG=configs/base.yaml
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_DEFAULT_REGION=eu-west-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    volumes:
+      - .:/opt/lean-fraud
+      - ./airflow/dags:/opt/airflow/dags
+    depends_on:
+      - localstack
+
 volumes:
   mlflow-data:
