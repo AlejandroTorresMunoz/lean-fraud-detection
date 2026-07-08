@@ -58,4 +58,12 @@ def main(rate_hz: float = 50.0, limit: int | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Replay Sparkov transactions into Kinesis.")
+    parser.add_argument("--rate-hz", type=float, default=50.0, help="transactions per second")
+    parser.add_argument(
+        "--limit", type=int, default=None, help="stop after N transactions (default: full replay)"
+    )
+    args = parser.parse_args()
+    main(rate_hz=args.rate_hz, limit=args.limit)
