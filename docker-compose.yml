@@ -1,6 +1,20 @@
 # Fully local, $0 stack. Emulates the AWS services a Revolut-style pipeline uses
 # (Kinesis + S3) via LocalStack — NO AWS account, NO billing. LocalStack emulates the
 # control plane too, so `tflocal apply` really provisions these resources. See README.
+#
+#   docker compose up -d                       # LocalStack + MLflow + the FastAPI scorer
+#   docker compose --profile stream up         # + provision, stream producer, and consumer (demo)
+#   docker compose --profile airflow up airflow # + the batch training DAG UI
+#
+# The scorer/consumer need a trained model: build it once on the host (uv run ... download,
+# build_sequences, train, evaluate) — the services read it from the bind-mounted ./artifacts + ./data.
+
+# Point every in-network client at LocalStack with dummy creds (reused via a YAML anchor).
+x-aws-env: &aws-env
+  AWS_ENDPOINT_URL: http://localstack:4566
+  AWS_DEFAULT_REGION: eu-west-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
 
 services:
   # --- LocalStack: emulated AWS (Kinesis + S3 + IAM/STS), control plane included ---
@@ -25,21 +39,71 @@ services:
     volumes:
       - mlflow-data:/mlflow
 
-  # --- Inference service ---
+  # --- Inference service (uv image; reads the trained model from the mounted volumes) ---
   api:
     build: .
+    image: lean-fraud:latest # named so producer/consumer reuse the same built image
     ports:
       - "8000:8000"
-    env_file: .env
     environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_DEFAULT_REGION=eu-west-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      <<: *aws-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./artifacts:/app/artifacts:ro # trained checkpoint + val-tuned threshold (built on the host)
+      - ./data:/app/data:ro # processed meta.json (scaler / category maps) + raw CSVs
     depends_on:
       - localstack
       - mlflow
+
+  # --- Provision LocalStack streams + bucket for the streaming demo (runs once, then exits) ---
+  init:
+    image: amazon/aws-cli:latest
+    profiles: ["stream"]
+    environment:
+      <<: *aws-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis list-streams >/dev/null 2>&1; do
+          echo "waiting for localstack..."; sleep 2;
+        done
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis create-stream --stream-name tx-stream --shard-count 1 || true
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis create-stream --stream-name alerts-stream --shard-count 1 || true
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" s3 mb s3://lean-fraud-artifacts || true
+        echo "localstack provisioned (tx-stream, alerts-stream, bucket)."
+    depends_on:
+      - localstack
+
+  # --- Stream consumer: score the tx stream with the TCN, triage + emit alerts (demo profile) ---
+  consumer:
+    build: .
+    image: lean-fraud:latest
+    profiles: ["stream"]
+    command: ["python", "-m", "lean_fraud.streaming.consumer"]
+    environment:
+      <<: *aws-env
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+      - ./data:/app/data:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # --- Stream producer: replay a bounded batch of raw transactions into Kinesis (demo profile) ---
+  producer:
+    build: .
+    image: lean-fraud:latest
+    profiles: ["stream"]
+    command: ["python", "-m", "lean_fraud.streaming.producer", "--limit", "2000", "--rate-hz", "200"]
+    environment:
+      <<: *aws-env
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      consumer:
+        condition: service_started
 
   # --- Batch orchestration (OPTIONAL: `docker compose --profile airflow up airflow`) ---
   # Runs the offline training pipeline DAG (download -> build -> train -> evaluate -> benchmark),

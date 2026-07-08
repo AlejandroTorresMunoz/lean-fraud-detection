@@ -91,14 +91,20 @@ traffic → the agent runs only on the flagged ~0.5%. Verified end to end agains
 
 ---
 
-## PR #6 — Containerization / exportable bundle (branch `docker`)
+## ✅ PR #6 — Containerization / exportable bundle (branch `docker`)
 
 **Goal:** the "clone & run" thesis — one command brings the whole demo up.
 
-- [ ] Dockerfile on `uv` (the current one uses plain `pip install -e .`).
-- [ ] Model provisioning strategy (how `best.pt` + `meta.json` reach the image).
-- [ ] `producer` and `consumer` as compose services (today only `api` is a service).
-- [ ] One-command `docker compose up` that stands up the full stack + demo.
+- [x] **Dockerfile on `uv`** — multi-stage build (`ghcr.io/astral-sh/uv` builder → slim runtime),
+      deps resolved from `uv.lock` (`--frozen`, `--no-group dev`); one image runs the api, producer,
+      and consumer. Added `.dockerignore` to keep the build context small.
+- [x] **Model provisioning strategy** — the model isn't baked in (it's git-ignored, produced by
+      training); services **bind-mount** the host-trained `./artifacts` + `./data` (read-only), so the
+      image stays lean and reproducible. The scorer returns `503` until a model is present.
+- [x] **`producer` + `consumer` as compose services** — same image, different commands, behind a
+      `stream` profile, plus a one-shot `init` service that provisions the streams/bucket (AWS CLI).
+- [x] **One-command up** — `docker compose up -d` (infra + scorer) and `docker compose --profile
+      stream up` (full producer→consumer demo); documented in the README.
 
 ---
 
@@ -107,4 +113,4 @@ traffic → the agent runs only on the flagged ~0.5%. Verified end to end agains
 1. ~~**PR #3 serving**~~ ✅ merged
 2. ~~**PR #4 agent**~~ ✅ done (differentiator)
 3. ~~**PR #5 polish**~~ ✅ done
-4. **PR #6 containerization** (next)
+4. ~~**PR #6 containerization**~~ ✅ done — project complete

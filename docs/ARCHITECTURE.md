@@ -147,5 +147,6 @@ cards, fraud ~0.5%.
 | Fraud-triage LLM agent (LangGraph cascade) | ✅ implemented (Ollama / mock backends) |
 | Airflow batch **training** DAG (download→build→train→eval→benchmark) | ✅ implemented |
 | CloudWatch `FraudAlertRate` metric + spike alarm | ✅ implemented (metric in consumer, alarm in `tflocal`) |
+| Containerization: `uv` image + api/producer/consumer compose services | ✅ implemented (one image, `stream` profile, bind-mounted model/data) |
 | Async batch inference: SQS queues + Postgres history + DAGs A/B/C | 🔭 future (documented, not built) |
 | MLflow Model Registry + auto-promotion + serve-from-registry | 🔭 future (documented, not built) |

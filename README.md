@@ -168,6 +168,25 @@ bash scripts/demo.sh                 # ~2000 tx at 200 tx/s, ready to screen-rec
 <!-- TODO(demo gif): record scripts/demo.sh and drop the GIF here, e.g.:
      ![real-time fraud demo](docs/demo.gif) -->
 
+### Fully containerized (Docker Compose)
+
+Everything runs from one `uv`-built image ([`Dockerfile`](Dockerfile)) — the FastAPI scorer, the
+producer, and the consumer are the same image with different commands. Compose **profiles** keep the
+default stack lean:
+
+```bash
+cp .env.example .env
+docker compose up -d                     # LocalStack + MLflow + the FastAPI scorer (:8000)
+docker compose --profile stream up       # + provision streams/bucket, then producer -> consumer demo
+docker compose down -v                    # tear everything down
+```
+
+The trained model and data are **not baked into the image** (they are git-ignored, produced by
+training); the services read them from the bind-mounted `./artifacts` + `./data`, so build the model
+once on the host (steps 2–4 above) before starting — the scorer returns `503` until a model is
+present. The `stream` profile adds a one-shot `init` service that provisions the Kinesis streams + S3
+bucket via the AWS CLI, then starts the consumer and a bounded producer.
+
 ## Datasets (public)
 
 Primary: **Sparkov** (`kartik2112/fraud-detection`) — ~1.85M synthetic credit-card transactions from

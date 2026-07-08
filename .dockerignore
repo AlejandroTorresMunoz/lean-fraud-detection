@@ -1,0 +1,33 @@
+# Keep the build context small + reproducible. The image installs from uv.lock and bind-mounts
+# data/model at run time, so none of this belongs in the build.
+.git
+.github
+.venv
+venv
+
+# Data & trained artifacts (git-ignored; bind-mounted at run time, never baked in)
+data/
+artifacts/
+mlruns/
+mlflow.db
+*.pt
+*.pkl
+*.parquet
+*.csv
+
+# Tooling / caches
+.pytest_cache
+.ruff_cache
+.ipynb_checkpoints
+.logs
+__pycache__
+*.py[cod]
+*.egg-info
+
+# Local-only, tests, notebooks, docs — not needed in the runtime image
+.env
+tests/
+notebooks/
+docs/
+CLAUDE.md
+MEMORY.md
