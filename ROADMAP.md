@@ -105,6 +105,11 @@ traffic → the agent runs only on the flagged ~0.5%. Verified end to end agains
       `stream` profile, plus a one-shot `init` service that provisions the streams/bucket (AWS CLI).
 - [x] **One-command up** — `docker compose up -d` (infra + scorer) and `docker compose --profile
       stream up` (full producer→consumer demo); documented in the README.
+- [x] **`GET /assess/{card_id}` + local LLM triage** — the "one call" endpoint: look the card up,
+      score its history with the TCN, run the LangGraph agent, and return both the model verdict and
+      the agent's decision + rationale. Added an `ollama` service (+ one-shot model pull) so the agent
+      runs locally/$0; the API points at it via `AGENT_PROVIDER=ollama`/`OLLAMA_BASE_URL`. Extended
+      `TransactionStore` with the full scoring columns + `raw_history(card_id)`. Verified end to end.
 
 ---
 

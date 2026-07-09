@@ -18,15 +18,34 @@ import pandas as pd
 from lean_fraud.data.transform.split import TEST, time_split
 
 RAW_FILES = ["fraudTrain.csv", "fraudTest.csv"]
+# Superset covering BOTH the agent tools (profile / recent / population) AND the TCN scoring path,
+# which additionally needs lat/long (geo distance) and gender (a categorical) — see
+# data.transform.features.treat_num_features and the categorical maps in meta.json.
 USE_COLS = [
     "cc_num",
     "unix_time",
     "amt",
-    "category",
-    "state",
+    "lat",
+    "long",
     "merch_lat",
     "merch_long",
+    "category",
+    "gender",
+    "state",
     "is_fraud",
+]
+# The subset build_feature_window re-engineers the TCN features from (no label).
+SCORING_COLS = [
+    "cc_num",
+    "unix_time",
+    "amt",
+    "lat",
+    "long",
+    "merch_lat",
+    "merch_long",
+    "category",
+    "gender",
+    "state",
 ]
 
 
@@ -81,6 +100,16 @@ class TransactionStore:
             "top_categories": group["category"].value_counts().head(3).index.tolist(),
             "home_state": None if states.empty else str(states.iloc[0]),
         }
+
+    def raw_history(self, card_id: str) -> list[dict]:
+        """Full raw transaction history for a card (oldest -> newest), with every column the TCN
+        scoring path needs. Returns the whole history (not a tail) so the causal rolling features
+        reproduce training exactly in build_feature_window. Unknown card -> []."""
+        group = self._by_card.get(str(card_id))
+        if group is None or group.empty:
+            return []
+        cols = [c for c in SCORING_COLS if c in group.columns]
+        return group.sort_values("unix_time")[cols].to_dict("records")
 
     def recent_transactions(self, card_id: str, k: int = 5) -> list[dict]:
         """The card's k most recent transactions (oldest -> newest). Unknown card -> []."""

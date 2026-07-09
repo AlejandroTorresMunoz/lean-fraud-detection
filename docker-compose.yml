@@ -18,8 +18,10 @@ x-aws-env: &aws-env
 
 services:
   # --- LocalStack: emulated AWS (Kinesis + S3 + IAM/STS), control plane included ---
+  # Pinned to a Community 3.x tag: it boots token-free (newer `latest`/4.x demands a
+  # LOCALSTACK_AUTH_TOKEN at startup), keeping the "$0, no account" promise reproducible.
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8
     ports:
       - "4566:4566"
     environment:
@@ -40,6 +42,8 @@ services:
       - mlflow-data:/mlflow
 
   # --- Inference service (uv image; reads the trained model from the mounted volumes) ---
+  # /predict scores an explicit sequence; /assess/{card_id} looks a card up, scores the TCN, and runs
+  # the LLM triage agent against the local Ollama backend, returning both results.
   api:
     build: .
     image: lean-fraud:latest # named so producer/consumer reuse the same built image
@@ -48,12 +52,33 @@ services:
     environment:
       <<: *aws-env
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      AGENT_PROVIDER: ollama # /assess uses the local LLM; falls back to threshold if it's unreachable
+      OLLAMA_BASE_URL: http://ollama:11434
     volumes:
       - ./artifacts:/app/artifacts:ro # trained checkpoint + val-tuned threshold (built on the host)
       - ./data:/app/data:ro # processed meta.json (scaler / category maps) + raw CSVs
     depends_on:
       - localstack
       - mlflow
+      - ollama
+
+  # --- Local LLM backend for the triage agent (used by /assess). $0, offline. ---
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama # persist the pulled model across restarts
+
+  # --- One-shot: pull the triage model into the ollama volume, then exit (first run is ~2 GB) ---
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull qwen2.5:3b"]
+    depends_on:
+      - ollama
+    restart: "no"
 
   # --- Provision LocalStack streams + bucket for the streaming demo (runs once, then exits) ---
   init:
@@ -94,7 +119,12 @@ services:
     build: .
     image: lean-fraud:latest
     profiles: ["stream"]
-    command: ["python", "-m", "lean_fraud.streaming.producer", "--limit", "2000", "--rate-hz", "200"]
+    # Brief head start so the consumer (LATEST shard iterator) is attached before we stream, otherwise
+    # the early records are missed and the demo shows no alerts.
+    command:
+      - sh
+      - -c
+      - sleep 8 && python -m lean_fraud.streaming.producer --limit 20000 --rate-hz 1000
     environment:
       <<: *aws-env
     volumes:
@@ -135,3 +165,4 @@ services:
 
 volumes:
   mlflow-data:
+  ollama-data:

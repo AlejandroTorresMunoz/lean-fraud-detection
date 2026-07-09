@@ -20,8 +20,10 @@
 #
 set -euo pipefail
 
-TX_LIMIT="${TX_LIMIT:-2000}"
-RATE_HZ="${RATE_HZ:-200}"
+# Stream enough tx that per-card history builds up and fraud alerts actually fire (the first few
+# thousand time-sorted tx are history-sparse and rarely cross the threshold).
+TX_LIMIT="${TX_LIMIT:-20000}"
+RATE_HZ="${RATE_HZ:-1000}"
 
 [ -f .env ] || { echo "ERROR: no .env — run 'cp .env.example .env' first."; exit 1; }
 

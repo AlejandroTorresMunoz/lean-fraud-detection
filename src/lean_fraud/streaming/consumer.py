@@ -52,7 +52,11 @@ def _put_fraud_rate(cloudwatch, namespace: str, alerts: int, total: int) -> None
             ],
         )
     except Exception as exc:  # noqa: BLE001 - monitoring must not crash the consumer
-        print(f"[consumer] CloudWatch put_metric_data failed ({exc}); continuing.")
+        # Keep it to one line: pinned LocalStack Community + modern boto3 can skew on the CloudWatch
+        # wire protocol; the metric is best-effort and the alarm itself is provisioned via tflocal.
+        print(
+            f"[consumer] CloudWatch put_metric_data unavailable ({type(exc).__name__}); continuing."
+        )
 
 
 def main(poll_seconds: float = 1.0) -> None:
@@ -68,13 +72,22 @@ def main(poll_seconds: float = 1.0) -> None:
         return
 
     # Cascade: the cheap TCN flags the ~0.5%, then the agent triages only those. Build it once
-    # (compiling the graph + loading the store is expensive). Degrade gracefully — if the agent can't
-    # be built (no data / backend), keep scoring and just emit alerts without a decision.
-    try:
-        agent = build_agent(cfg)
-    except Exception as exc:
-        print(f"[consumer] triage agent unavailable ({exc}); alerts will carry no decision.")
+    # (compiling the graph + loading the store is expensive). The `mock` backend is a deterministic
+    # test stub that can't bind tools, so it is not a live triage engine — skip it and emit alerts
+    # without a decision (real triage needs the ollama backend; see scripts/agent_demo.py). Otherwise
+    # degrade gracefully: if the agent can't be built (no data / backend), keep scoring anyway.
+    if cfg.get("agent", {}).get("provider") == "mock":
+        print(
+            "[consumer] agent.provider=mock -> triage disabled; alerts carry no decision "
+            "(set agent.provider=ollama with Ollama running for live triage)."
+        )
         agent = None
+    else:
+        try:
+            agent = build_agent(cfg)
+        except Exception as exc:
+            print(f"[consumer] triage agent unavailable ({exc}); alerts will carry no decision.")
+            agent = None
 
     stream_cfg = cfg.get("streaming", {})
     cw_namespace = stream_cfg.get("cloudwatch_namespace", "LeanFraud")

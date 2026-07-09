@@ -78,9 +78,11 @@ With no ground-truth labels at scoring time, F1/PR-AUC can't be monitored live; 
 non-issue (~10× headroom). The one actionable live signal is the **alert rate**: the consumer emits a
 windowed `FraudAlertRate` custom metric (`put_metric_data`, `LeanFraud` namespace), and a
 `tflocal`-provisioned `aws_cloudwatch_metric_alarm` fires when it spikes above ~10× the base rate —
-i.e. an attack or data drift. LocalStack Community doesn't fully auto-evaluate alarm state, so in the
-demo you may push a data point / `set-alarm-state`; the alarm *definition* is the production-grade
-artifact and the same HCL alarms for real on AWS.
+i.e. an attack or data drift. The metric push is **best-effort**: on the pinned LocalStack Community
+image, CloudWatch metric ingestion and automatic alarm-state evaluation are limited (a modern
+boto3 ↔ community wire-protocol skew can make `put_metric_data` a no-op, and you may need
+`set-alarm-state` to see it fire) — the consumer swallows any such error and keeps scoring. The alarm
+*definition* is the production-grade artifact and the same HCL alarms for real on AWS.
 
 ## Future direction — async batch inference (SQS + Postgres, NOT built)
 
