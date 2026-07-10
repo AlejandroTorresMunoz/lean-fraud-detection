@@ -163,9 +163,10 @@ uv sync --extra demo          # add the Streamlit demo UI
 uv sync --group infra         # add tflocal/awslocal (provision LocalStack)
 uv sync --group data          # add the Kaggle API (dataset download)
 
-# 1. spin up the emulated AWS stack (LocalStack: Kinesis + S3) + MLflow + API
+# 1. bring up what the data pipeline + training need: LocalStack (Kinesis + S3) + MLflow
+#    (the API + Ollama come later — see "Deploy the API" — so we don't pull the 2GB model yet)
 cp .env.example .env
-docker compose up -d
+docker compose up -d localstack mlflow
 uv run bash infra/init_localstack.sh   # tflocal apply -> really provisions the streams + bucket
 
 # 2. download a public dataset and build transaction sequences
@@ -181,8 +182,10 @@ uv run python -m lean_fraud.train     --config configs/base.yaml   # train the l
 uv run python -m lean_fraud.evaluate  --config configs/base.yaml   # test PR-AUC / F1 at val-tuned thr
 uv run python -m lean_fraud.benchmark --config configs/base.yaml   # params + latency p50/p99
 
-# 5. serve the scorer and run the real-time stream demo
-uv run uvicorn lean_fraud.serve.api:app --host 0.0.0.0 --port 8000   # FastAPI on :8000
+# 4. serve the API (see "Deploy the API" below for the Docker path + the endpoint reference)
+uv run uvicorn lean_fraud.serve.api:app --host 0.0.0.0 --port 8000   # FastAPI on :8000 — open /docs
+
+# 5. (optional) run the real-time Kinesis stream demo
 uv run python -m lean_fraud.streaming.producer   # replay transactions into Kinesis
 uv run python -m lean_fraud.streaming.consumer   # score the stream, triage alerts, emit decisions
 
@@ -194,6 +197,25 @@ Dev tasks: `uv run pytest -q` · `uv run ruff check src tests` · `uv run black 
 
 Tear down the stack with `docker compose down -v`. Every entrypoint is a `python -m lean_fraud.<module>`
 module, so it also runs without uv once the package is installed.
+
+### Deploy the API
+
+The trained TCN is served as a **FastAPI** app — interactive docs at **`/docs`** (`/` redirects there).
+**Train once first** (steps 2–4 above): the API loads the checkpoint from `./artifacts` + `./data` and
+returns `503` until a model exists. Then serve it either way:
+
+```bash
+docker compose up -d                                                # recommended — full stack (scorer + Ollama triage backend)
+uv run uvicorn lean_fraud.serve.api:app --host 0.0.0.0 --port 8000  # or just the API on the host (no Docker)
+```
+
+```bash
+curl localhost:8000/health
+curl localhost:8000/assess/2291163933867244    # TCN verdict + the agent's decision & rationale
+```
+
+The full endpoint reference is the API table above; the Docker specifics (Ollama, the `stream` profile,
+the ~2 GB first-run model pull) are in **Fully containerized** below.
 
 ### One-command demo
 
