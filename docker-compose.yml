@@ -1,11 +1,27 @@
 # Fully local, $0 stack. Emulates the AWS services a Revolut-style pipeline uses
 # (Kinesis + S3) via LocalStack — NO AWS account, NO billing. LocalStack emulates the
 # control plane too, so `tflocal apply` really provisions these resources. See README.
+#
+#   docker compose up -d                       # LocalStack + MLflow + the FastAPI scorer
+#   docker compose --profile stream up         # + provision, stream producer, and consumer (demo)
+#   docker compose --profile airflow up airflow # + the batch training DAG UI
+#
+# The scorer/consumer need a trained model: build it once on the host (uv run ... download,
+# build_sequences, train, evaluate) — the services read it from the bind-mounted ./artifacts + ./data.
+
+# Point every in-network client at LocalStack with dummy creds (reused via a YAML anchor).
+x-aws-env: &aws-env
+  AWS_ENDPOINT_URL: http://localstack:4566
+  AWS_DEFAULT_REGION: eu-west-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
 
 services:
   # --- LocalStack: emulated AWS (Kinesis + S3 + IAM/STS), control plane included ---
+  # Pinned to a Community 3.x tag: it boots token-free (newer `latest`/4.x demands a
+  # LOCALSTACK_AUTH_TOKEN at startup), keeping the "$0, no account" promise reproducible.
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8
     ports:
       - "4566:4566"
     environment:
@@ -25,21 +41,108 @@ services:
     volumes:
       - mlflow-data:/mlflow
 
-  # --- Inference service ---
+  # --- Inference service (uv image; reads the trained model from the mounted volumes) ---
+  # /predict scores an explicit sequence; /assess/{card_id} looks a card up, scores the TCN, and runs
+  # the LLM triage agent against the local Ollama backend, returning both results.
   api:
     build: .
+    image: lean-fraud:latest # named so producer/consumer reuse the same built image
     ports:
       - "8000:8000"
-    env_file: .env
     environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_DEFAULT_REGION=eu-west-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      <<: *aws-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      AGENT_PROVIDER: ollama # /assess uses the local LLM; falls back to threshold if it's unreachable
+      OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      - ./artifacts:/app/artifacts:ro # trained checkpoint + val-tuned threshold (built on the host)
+      - ./data:/app/data:ro # processed meta.json (scaler / category maps) + raw CSVs
+    depends_on:
+      localstack:
+        condition: service_started
+      mlflow:
+        condition: service_started
+      # Wait for the model pull to finish, so by the time the API is up `/assess` returns a real LLM
+      # rationale (not the threshold fallback). First `up` blocks on the ~2 GB download; later runs are
+      # instant (the model is cached in the ollama-data volume, so the pull just re-verifies).
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # --- Local LLM backend for the triage agent (used by /assess). $0, offline. ---
+  # Not published to the host: the api + ollama-pull reach it over the compose network at
+  # `ollama:11434`. Publishing it would clash with a host-installed Ollama already on 11434 (which
+  # stops the container from starting). To poke it from the host, map a free port, e.g. "11435:11434".
+  ollama:
+    image: ollama/ollama:latest
+    expose:
+      - "11434"
+    volumes:
+      - ollama-data:/root/.ollama # persist the pulled model across restarts
+
+  # --- One-shot: pull the triage model into the ollama volume, then exit (first run is ~2 GB) ---
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull qwen2.5:3b"]
+    depends_on:
+      - ollama
+    restart: "no"
+
+  # --- Provision LocalStack streams + bucket for the streaming demo (runs once, then exits) ---
+  init:
+    image: amazon/aws-cli:latest
+    profiles: ["stream"]
+    environment:
+      <<: *aws-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis list-streams >/dev/null 2>&1; do
+          echo "waiting for localstack..."; sleep 2;
+        done
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis create-stream --stream-name tx-stream --shard-count 1 || true
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" kinesis create-stream --stream-name alerts-stream --shard-count 1 || true
+        aws --endpoint-url "$$AWS_ENDPOINT_URL" s3 mb s3://lean-fraud-artifacts || true
+        echo "localstack provisioned (tx-stream, alerts-stream, bucket)."
     depends_on:
       - localstack
-      - mlflow
+
+  # --- Stream consumer: score the tx stream with the TCN, triage + emit alerts (demo profile) ---
+  consumer:
+    build: .
+    image: lean-fraud:latest
+    profiles: ["stream"]
+    command: ["python", "-m", "lean_fraud.streaming.consumer"]
+    environment:
+      <<: *aws-env
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+      - ./data:/app/data:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # --- Stream producer: replay a bounded batch of raw transactions into Kinesis (demo profile) ---
+  producer:
+    build: .
+    image: lean-fraud:latest
+    profiles: ["stream"]
+    # Brief head start so the consumer (LATEST shard iterator) is attached before we stream, otherwise
+    # the early records are missed and the demo shows no alerts.
+    command:
+      - sh
+      - -c
+      - sleep 8 && python -m lean_fraud.streaming.producer --limit 20000 --rate-hz 1000
+    environment:
+      <<: *aws-env
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      consumer:
+        condition: service_started
 
   # --- Batch orchestration (OPTIONAL: `docker compose --profile airflow up airflow`) ---
   # Runs the offline training pipeline DAG (download -> build -> train -> evaluate -> benchmark),
@@ -71,3 +174,4 @@ services:
 
 volumes:
   mlflow-data:
+  ollama-data:
