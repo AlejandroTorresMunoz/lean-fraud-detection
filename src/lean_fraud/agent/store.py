@@ -101,6 +101,10 @@ class TransactionStore:
             "home_state": None if states.empty else str(states.iloc[0]),
         }
 
+    def card_ids(self) -> list[str]:
+        """All known card ids (the per-user key)."""
+        return list(self._by_card.keys())
+
     def raw_history(self, card_id: str) -> list[dict]:
         """Full raw transaction history for a card (oldest -> newest), with every column the TCN
         scoring path needs. Returns the whole history (not a tail) so the causal rolling features
@@ -109,7 +113,22 @@ class TransactionStore:
         if group is None or group.empty:
             return []
         cols = [c for c in SCORING_COLS if c in group.columns]
-        return group.sort_values("unix_time")[cols].to_dict("records")
+        rows = group.sort_values("unix_time")[cols].to_dict("records")
+        for r in rows:
+            r["cc_num"] = str(r["cc_num"])  # card id as a string, consistent with card_ids()
+        return rows
+
+    def iter_all_raw(self, limit: int | None = None):
+        """Yield raw tx dicts across ALL cards in global time order (the firehose stream).
+
+        The caller keeps its own per-card history to score causally, exactly like the consumer.
+        """
+        cols = [c for c in SCORING_COLS if c in self._df.columns]
+        frame = self._df if not limit or limit <= 0 else self._df.head(limit)
+        for row in frame[cols].itertuples(index=False):
+            rec = dict(zip(cols, row))
+            rec["cc_num"] = str(rec["cc_num"])
+            yield rec
 
     def recent_transactions(self, card_id: str, k: int = 5) -> list[dict]:
         """The card's k most recent transactions (oldest -> newest). Unknown card -> []."""
